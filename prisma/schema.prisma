@@ -1,0 +1,311 @@
+// ─────────────────────────────────────────────────────────────
+//  GRC Platform – Prisma Schema
+//  Single-tenant, PostgreSQL, map-once-comply-many design
+// ─────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN       // Full system access
+  CONTRIBUTOR // Assessments & evidence
+  VIEWER      // Executive reporting only
+}
+
+enum FrameworkSlug {
+  NIST_CSF_2
+  CIS_V8_1
+  PCI_DSS_4
+  ISO_27001_2022
+}
+
+enum ControlStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  IMPLEMENTED
+  NOT_APPLICABLE
+}
+
+enum ComplianceStatus {
+  COMPLIANT
+  PARTIAL
+  NON_COMPLIANT
+  NOT_APPLICABLE
+}
+
+enum RiskLikelihood {
+  RARE        // 1
+  UNLIKELY    // 2
+  POSSIBLE    // 3
+  LIKELY      // 4
+  ALMOST_CERTAIN // 5
+}
+
+enum RiskImpact {
+  NEGLIGIBLE  // 1
+  MINOR       // 2
+  MODERATE    // 3
+  MAJOR       // 4
+  CRITICAL    // 5
+}
+
+enum RiskVelocity {
+  SLOW        // days/weeks to materialise
+  MEDIUM      // hours to days
+  FAST        // immediate
+}
+
+enum RiskTreatment {
+  MITIGATE
+  TRANSFER
+  ACCEPT
+  AVOID
+}
+
+enum RemediationStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  WONT_FIX
+}
+
+enum EvidenceType {
+  PDF
+  IMAGE
+  CSV
+  JSON
+  OTHER
+}
+
+// ─── Users (Clerk-managed, we store role metadata) ────────────
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  email     String   @unique
+  name      String?
+  role      UserRole @default(VIEWER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assessments  Assessment[]
+  remediations Remediation[]
+  evidence     Evidence[]
+  auditLogs    AuditLog[]
+}
+
+// ─── Frameworks ───────────────────────────────────────────────
+
+model Framework {
+  id          String        @id @default(cuid())
+  slug        FrameworkSlug @unique
+  name        String        // "NIST CSF 2.0"
+  version     String        // "2.0"
+  description String?
+  publishedAt DateTime?
+  createdAt   DateTime      @default(now())
+
+  requirements FrameworkRequirement[]
+}
+
+model FrameworkRequirement {
+  id           String  @id @default(cuid())
+  frameworkId  String
+  controlId    String  // e.g. "GV.OC-01", "CIS-1.1"
+  category     String  // e.g. "GOVERN", "Implementation Group 1"
+  subCategory  String? // e.g. "Organizational Context"
+  title        String
+  description  String  @db.Text
+  guidance     String? @db.Text
+  weight       Int     @default(1) // for compliance score weighting
+
+  framework    Framework              @relation(fields: [frameworkId], references: [id], onDelete: Cascade)
+  mappings     ControlFrameworkMapping[]
+  assessmentResults AssessmentResult[]
+
+  @@index([frameworkId])
+  @@index([controlId])
+}
+
+// ─── Internal Controls (the "map once" source of truth) ───────
+
+model InternalControl {
+  id          String        @id @default(cuid())
+  controlCode String        @unique // e.g. "IC-001"
+  title       String
+  description String        @db.Text
+  status      ControlStatus @default(NOT_STARTED)
+  owner       String?       // person/team responsible
+  category    String?       // e.g. "Identity & Access", "Network Security"
+  tags        String[]      // free-form tags
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  frameworkMappings ControlFrameworkMapping[]
+  evidence          Evidence[]
+  remediations      Remediation[]
+  assessmentResults AssessmentResult[]
+}
+
+// ─── Many-to-many: InternalControl ↔ FrameworkRequirement ─────
+
+model ControlFrameworkMapping {
+  id            String           @id @default(cuid())
+  controlId     String
+  requirementId String
+  notes         String?
+  createdAt     DateTime         @default(now())
+
+  control     InternalControl      @relation(fields: [controlId], references: [id], onDelete: Cascade)
+  requirement FrameworkRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+
+  @@unique([controlId, requirementId])
+  @@index([controlId])
+  @@index([requirementId])
+}
+
+// ─── Risk Register ────────────────────────────────────────────
+
+model Risk {
+  id               String         @id @default(cuid())
+  riskId           String         @unique // e.g. "RISK-001"
+  title            String
+  description      String         @db.Text
+  category         String?
+  owner            String?
+  likelihood       RiskLikelihood
+  impact           RiskImpact
+  velocity         RiskVelocity
+  inherentScore    Int            // computed: likelihood × impact
+  residualScore    Int            // after controls applied
+  treatment        RiskTreatment
+  treatmentDetails String?        @db.Text
+  reviewDate       DateTime?
+  isOpen           Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  relatedControls  String[]       // array of InternalControl.controlCode
+  evidence         Evidence[]
+}
+
+// ─── Assessments ──────────────────────────────────────────────
+
+model Assessment {
+  id          String   @id @default(cuid())
+  title       String
+  frameworkId String
+  conductedBy String   // userId
+  startDate   DateTime
+  endDate     DateTime?
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  conductor Framework        @relation(fields: [frameworkId], references: [id])
+  results   AssessmentResult[]
+  user      User             @relation(fields: [conductedBy], references: [id])
+}
+
+model AssessmentResult {
+  id            String           @id @default(cuid())
+  assessmentId  String
+  controlId     String
+  requirementId String
+  status        ComplianceStatus
+  score         Int?             // 0-100 percentage
+  notes         String?          @db.Text
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  assessment  Assessment           @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  control     InternalControl      @relation(fields: [controlId], references: [id])
+  requirement FrameworkRequirement @relation(fields: [requirementId], references: [id])
+  evidence    Evidence[]
+
+  @@index([assessmentId])
+  @@index([controlId])
+}
+
+// ─── Evidence Locker ──────────────────────────────────────────
+
+model Evidence {
+  id                String       @id @default(cuid())
+  title             String
+  description       String?
+  fileName          String
+  fileSize          Int          // bytes
+  fileType          EvidenceType
+  storageKey        String       // S3/GCS object key or local path
+  uploadedBy        String       // userId
+  controlId         String?
+  riskId            String?
+  assessmentResultId String?
+  collectedAt       DateTime     @default(now())
+  expiresAt         DateTime?    // for evidence freshness tracking
+  version           Int          @default(1)
+  tags              String[]
+  createdAt         DateTime     @default(now())
+
+  uploader          User              @relation(fields: [uploadedBy], references: [id])
+  control           InternalControl?  @relation(fields: [controlId], references: [id])
+  risk              Risk?             @relation(fields: [riskId], references: [id])
+  assessmentResult  AssessmentResult? @relation(fields: [assessmentResultId], references: [id])
+
+  @@index([controlId])
+  @@index([riskId])
+}
+
+// ─── Remediations ─────────────────────────────────────────────
+
+model Remediation {
+  id              String            @id @default(cuid())
+  title           String
+  description     String            @db.Text
+  controlId       String
+  assignedTo      String            // userId
+  status          RemediationStatus @default(OPEN)
+  priority        Int               @default(2) // 1=Critical, 2=High, 3=Medium, 4=Low
+  dueDate         DateTime?
+  resolvedAt      DateTime?
+  // Jira integration
+  jiraIssueKey    String?           // e.g. "GRC-123"
+  jiraIssueUrl    String?
+  jiraSyncedAt    DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  control         InternalControl   @relation(fields: [controlId], references: [id])
+  assignee        User              @relation(fields: [assignedTo], references: [id])
+
+  @@index([controlId])
+  @@index([status])
+}
+
+// ─── Audit Log ────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String
+  action     String   // "CREATE_RISK", "UPDATE_CONTROL", etc.
+  entityType String   // "Risk", "InternalControl", etc.
+  entityId   String
+  changes    Json?    // diff of what changed
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
