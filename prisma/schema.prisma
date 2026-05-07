@@ -114,6 +114,7 @@ model Framework {
   createdAt   DateTime      @default(now())
 
   requirements FrameworkRequirement[]
+  assessments  Assessment[]
 }
 
 model FrameworkRequirement {
