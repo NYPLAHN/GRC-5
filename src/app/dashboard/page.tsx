@@ -127,8 +127,7 @@ export default async function DashboardPage() {
             title="Critical Open Risks"
             value={criticalRisks.length}
             subtitle="Score ≥ 15, unmitigated"
-            icon={AlertTriangle}
-            iconColor="text-red-600"
+            icon={<AlertTriangle className="h-5 w-5 text-red-600" />}
             iconBg="bg-red-50 dark:bg-red-950"
             trend={criticalRisks.length > 0 ? "down" : "neutral"}
             trendValue={criticalRisks.length > 0 ? "Requires immediate action" : "None – good posture"}
@@ -137,8 +136,7 @@ export default async function DashboardPage() {
             title="Controls Implemented"
             value={`${implementedControls}/${data.controls.length}`}
             subtitle="Internal controls active"
-            icon={ShieldCheck}
-            iconColor="text-green-600"
+            icon={<ShieldCheck className="h-5 w-5 text-green-600" />}
             iconBg="bg-green-50 dark:bg-green-950"
             trend="up"
             trendValue={`${Math.round((implementedControls / data.controls.length) * 100)}% coverage`}
@@ -147,8 +145,7 @@ export default async function DashboardPage() {
             title="Open Remediations"
             value={openRemediations.length}
             subtitle={data.overdueRemediations.length > 0 ? `⚠ ${data.overdueRemediations.length} overdue` : "All within SLA"}
-            icon={Wrench}
-            iconColor="text-orange-600"
+            icon={<Wrench className="h-5 w-5 text-orange-600" />}
             iconBg="bg-orange-50 dark:bg-orange-950"
             trend={data.overdueRemediations.length > 0 ? "down" : "neutral"}
             trendValue={`${data.remediations.filter((r) => r.status === "RESOLVED").length} resolved`}
@@ -161,8 +158,7 @@ export default async function DashboardPage() {
                 : "N/A"
             }
             subtitle={`Across ${data.complianceSummaries.length} frameworks`}
-            icon={ClipboardCheck}
-            iconColor="text-blue-600"
+            icon={<ClipboardCheck className="h-5 w-5 text-blue-600" />}
             iconBg="bg-blue-50 dark:bg-blue-950"
           />
         </div>

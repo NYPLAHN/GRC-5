@@ -1,7 +1,8 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { LucideIcon, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 
 interface StatsCardProps {
   title: string;
@@ -9,8 +10,10 @@ interface StatsCardProps {
   subtitle?: string;
   trend?: "up" | "down" | "neutral";
   trendValue?: string;
-  icon: LucideIcon;
-  iconColor?: string;
+  // Pre-rendered icon element (e.g. <AlertTriangle className="h-5 w-5 text-red-600" />).
+  // Must be a ReactNode, NOT a component reference, so it can be serialized across
+  // the Server → Client Component boundary.
+  icon: ReactNode;
   iconBg?: string;
   className?: string;
 }
@@ -21,8 +24,7 @@ export default function StatsCard({
   subtitle,
   trend,
   trendValue,
-  icon: Icon,
-  iconColor = "text-blue-600",
+  icon,
   iconBg = "bg-blue-50",
   className,
 }: StatsCardProps) {
@@ -53,7 +55,7 @@ export default function StatsCard({
           )}
         </div>
         <div className={cn("rounded-lg p-3", iconBg)}>
-          <Icon className={cn("h-5 w-5", iconColor)} />
+          {icon}
         </div>
       </div>
     </div>
