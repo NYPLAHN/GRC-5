@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     // Resolve controlCode strings (e.g. "IC-001") to their database UUIDs
     let resolvedResults = results ?? [];
     if (resolvedResults.length > 0) {
-      const controlCodes = [...new Set(resolvedResults.map((r) => r.controlId))];
+      const controlCodes = Array.from(new Set(resolvedResults.map((r) => r.controlId)));
       const controls = await prisma.internalControl.findMany({
         where: { controlCode: { in: controlCodes } },
         select: { id: true, controlCode: true },
