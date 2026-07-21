@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useTransition } from "react";
 import Header from "@/components/layout/Header";
-import { AlertTriangle, Plus, X, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { AlertTriangle, Plus, X, ChevronDown, ChevronUp, Loader2, Sparkles } from "lucide-react";
 import { cn, getRiskRating, getRiskBadgeClasses, computeRiskScore } from "@/lib/utils";
 
 type RiskRow = {
@@ -173,10 +173,145 @@ function RiskDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: (risk:
   );
 }
 
+type Assessment = { id: string; title: string; startDate: string };
+
+function GenerateRisksModal({
+  onClose,
+  onGenerated,
+}: {
+  onClose: () => void;
+  onGenerated: (risks: RiskRow[]) => void;
+}) {
+  const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [loadingAssessments, setLoadingAssessments] = useState(true);
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<{ created: number } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/assessments")
+      .then((r) => r.json())
+      .then((d) => {
+        setAssessments(d.data ?? []);
+        if (d.data?.length > 0) setSelectedId(d.data[0].id);
+      })
+      .finally(() => setLoadingAssessments(false));
+  }, []);
+
+  function handleGenerate() {
+    if (!selectedId) return;
+    setError("");
+    startTransition(async () => {
+      try {
+        const res = await fetch("/api/risks/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assessmentId: selectedId }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed to generate risks");
+        setResult({ created: data.data.created });
+        onGenerated(data.data.risks ?? []);
+      } catch (err: any) {
+        setError(err.message);
+      }
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-md rounded-2xl bg-white dark:bg-gray-900 shadow-2xl">
+        <div className="flex items-center justify-between border-b dark:border-gray-800 px-6 py-4">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Generate Risks from Assessment</h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              Creates risk entries for every NON_COMPLIANT and PARTIAL finding
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1 hover:bg-gray-100 dark:hover:bg-gray-800">
+            <X className="h-5 w-5 dark:text-gray-400" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {result ? (
+            <div className="rounded-xl border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/40 p-6 text-center">
+              <p className="text-3xl font-bold text-green-700 dark:text-green-400">{result.created}</p>
+              <p className="text-sm text-green-600 dark:text-green-500 mt-1">
+                {result.created === 0 ? "No gaps found — all controls compliant!" : "risks generated from compliance gaps"}
+              </p>
+              <button onClick={onClose} className="mt-4 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700">
+                Done
+              </button>
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Select Assessment *
+                </label>
+                {loadingAssessments ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading assessments...
+                  </div>
+                ) : assessments.length === 0 ? (
+                  <p className="text-sm text-red-500">No assessments found. Upload an assessment first.</p>
+                ) : (
+                  <select
+                    value={selectedId}
+                    onChange={(e) => setSelectedId(e.target.value)}
+                    className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {assessments.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.title} · {new Date(a.startDate).toLocaleDateString()}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div className="rounded-lg border dark:border-gray-700 bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 p-3">
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  This will create one risk entry per NON_COMPLIANT or PARTIAL control in the selected assessment.
+                  Risks are scored automatically based on compliance status and linked back to the source control.
+                </p>
+              </div>
+
+              {error && (
+                <p className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 px-3 py-2 text-sm text-red-600 dark:text-red-400">
+                  {error}
+                </p>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={onClose} className="flex-1 rounded-lg border dark:border-gray-700 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
+                  Cancel
+                </button>
+                <button
+                  onClick={handleGenerate}
+                  disabled={isPending || !selectedId || loadingAssessments}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  Generate Risks
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function RisksPage() {
   const [risks, setRisks] = useState<RiskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDrawer, setShowDrawer] = useState(false);
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [sortField, setSortField] = useState<"inherentScore" | "residualScore" | "riskId">("inherentScore");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
@@ -228,9 +363,17 @@ export default function RisksPage() {
         <div className="overflow-hidden rounded-xl border dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm">
           <div className="flex items-center justify-between border-b dark:border-gray-800 px-6 py-4">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Risk Register ({risks.length} risks)</h2>
-            <button onClick={() => setShowDrawer(true)} className="flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
-              <Plus className="h-3.5 w-3.5" /> New Risk
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowGenerateModal(true)}
+                className="flex items-center gap-2 rounded-lg border border-blue-300 dark:border-blue-700 bg-white dark:bg-gray-900 px-3 py-2 text-xs font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40"
+              >
+                <Sparkles className="h-3.5 w-3.5" /> Generate from Assessment
+              </button>
+              <button onClick={() => setShowDrawer(true)} className="flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
+                <Plus className="h-3.5 w-3.5" /> New Risk
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -292,6 +435,12 @@ export default function RisksPage() {
       </main>
 
       {showDrawer && <RiskDrawer onClose={() => setShowDrawer(false)} onSaved={(r) => setRisks((prev) => [r, ...prev])} />}
+      {showGenerateModal && (
+        <GenerateRisksModal
+          onClose={() => setShowGenerateModal(false)}
+          onGenerated={(newRisks) => setRisks((prev) => [...newRisks, ...prev])}
+        />
+      )}
     </>
   );
 }

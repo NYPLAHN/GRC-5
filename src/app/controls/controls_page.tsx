@@ -13,6 +13,7 @@ import {
   Tag,
 } from "lucide-react";
 import Link from "next/link";
+import ImportControlsButton from "@/components/controls/ImportControlsButton";
 
 async function getControls() {
   return prisma.internalControl.findMany({
@@ -98,10 +99,11 @@ export default async function ControlsPage() {
 
         {/* Controls Table */}
         <div className="overflow-hidden rounded-xl border dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm">
-          <div className="border-b dark:border-gray-800 px-6 py-4">
+          <div className="flex items-center justify-between border-b dark:border-gray-800 px-6 py-4">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               Internal Controls ({controls.length})
             </h2>
+            <ImportControlsButton />
           </div>
           <div className="overflow-x-auto">
             <table className="data-table w-full">
