@@ -38,7 +38,7 @@ function parseCsv(csv: string): ParsedControl[] {
   }).filter((r) => r.controlCode && r.title);
 }
 
-export default function ImportControlsButton() {
+export default function ImportControlsButton({ onImported }: { onImported?: () => void } = {}) {
   const router = useRouter();
   const [showModal, setShowModal] = useState(false);
   const [csvContent, setCsvContent] = useState("");
@@ -91,6 +91,7 @@ export default function ImportControlsButton() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Import failed");
         setResult(data.data);
+        onImported?.();
         router.refresh();
       } catch (err: any) {
         setError(err.message);
