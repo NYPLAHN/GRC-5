@@ -111,10 +111,28 @@ export async function POST(request: NextRequest) {
             }
           : {}),
       },
+      include: {
+        conductor: true,
+        results: true,
+        _count: { select: { results: true } },
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "CREATE_ASSESSMENT",
+        entityType: "Assessment",
+        entityId: assessment.id,
+        changes: { title: assessment.title, resultsCount: results?.length ?? 0 },
+      },
     });
 
     return NextResponse.json({ data: assessment }, { status: 201 });
   } catch (err: any) {
+    if (err.name === "ZodError") {
+      return NextResponse.json({ error: "Validation error", details: err.errors }, { status: 400 });
+    }
     const status = err.message.startsWith("Unauthorized") ? 401
       : err.message.startsWith("Forbidden") ? 403 : 500;
     return NextResponse.json({ error: err.message }, { status });
