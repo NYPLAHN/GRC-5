@@ -4,13 +4,26 @@ import { useState, useEffect, useTransition } from "react";
 import Header from "@/components/layout/Header";
 import {
   ShieldCheck, CheckCircle2, Clock, XCircle, Minus,
-  ChevronRight, Tag, X, Loader2, Pencil,
+  Tag, X, Loader2, Pencil, Plus, Search,
 } from "lucide-react";
 import { cn, formatControlStatus, getControlStatusClasses } from "@/lib/utils";
 import ImportControlsButton from "@/components/controls/ImportControlsButton";
 
+type NistRequirement = {
+  id: string;
+  controlId: string;
+  category: string;
+  subCategory: string | null;
+  title: string;
+};
+
 type FrameworkMapping = {
-  requirement: { controlId: string; framework: { slug: string; name: string } };
+  requirementId: string;
+  requirement: {
+    id: string;
+    controlId: string;
+    framework: { slug: string; name: string };
+  };
 };
 
 type Control = {
@@ -33,18 +46,27 @@ const STATUS_ICONS = {
   NOT_APPLICABLE: Minus,
 };
 
+// Only show NIST CSF — CIS is seeded but not NYPL's active framework
 const FRAMEWORK_COLORS: Record<string, string> = {
   NIST_CSF_2: "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800",
-  CIS_V8_1: "bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800",
-  PCI_DSS_4: "bg-cyan-100 text-cyan-700 border-cyan-200 dark:bg-cyan-950 dark:text-cyan-300 dark:border-cyan-800",
-  ISO_27001_2022: "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800",
+};
+const FRAMEWORK_SHORT: Record<string, string> = {
+  NIST_CSF_2: "NIST CSF",
 };
 
-const FRAMEWORK_SHORT: Record<string, string> = {
-  NIST_CSF_2: "NIST", CIS_V8_1: "CIS", PCI_DSS_4: "PCI", ISO_27001_2022: "ISO",
+// NIST CSF function colors for the mapping selector
+const FUNCTION_COLORS: Record<string, string> = {
+  GOVERN: "bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800",
+  IDENTIFY: "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800",
+  PROTECT: "bg-green-100 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800",
+  DETECT: "bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-300 dark:border-yellow-800",
+  RESPOND: "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950 dark:text-orange-300 dark:border-orange-800",
+  RECOVER: "bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-950 dark:text-teal-300 dark:border-teal-800",
 };
 
 const STATUS_OPTS = ["IMPLEMENTED", "IN_PROGRESS", "NOT_STARTED", "NOT_APPLICABLE"] as const;
+
+// ─── Edit Drawer ──────────────────────────────────────────────────────────────
 
 function EditDrawer({ control, onClose, onSaved }: {
   control: Control;
@@ -59,8 +81,54 @@ function EditDrawer({ control, onClose, onSaved }: {
     category: control.category ?? "",
     tags: control.tags.join("; "),
   });
+
+  // Framework mapping state
+  // Initialize with current NIST mapping UUIDs
+  const initialReqIds = control.frameworkMappings
+    .filter((m) => m.requirement.framework.slug === "NIST_CSF_2")
+    .map((m) => m.requirement.id ?? m.requirementId);
+
+  const [selectedReqIds, setSelectedReqIds] = useState<string[]>(initialReqIds);
+  const [nistReqs, setNistReqs] = useState<NistRequirement[]>([]);
+  const [loadingReqs, setLoadingReqs] = useState(true);
+  const [reqSearch, setReqSearch] = useState("");
+  const [showReqPicker, setShowReqPicker] = useState(false);
+
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/frameworks/requirements?slug=NIST_CSF_2")
+      .then((r) => r.json())
+      .then((d) => setNistReqs(d.data ?? []))
+      .finally(() => setLoadingReqs(false));
+  }, []);
+
+  const selectedReqs = nistReqs.filter((r) => selectedReqIds.includes(r.id));
+  const filteredReqs = nistReqs.filter((r) => {
+    if (selectedReqIds.includes(r.id)) return false; // already selected
+    if (!reqSearch) return true;
+    const q = reqSearch.toLowerCase();
+    return (
+      r.controlId.toLowerCase().includes(q) ||
+      r.title.toLowerCase().includes(q) ||
+      r.category.toLowerCase().includes(q)
+    );
+  });
+
+  // Group by NIST function
+  const groupedFiltered = filteredReqs.reduce<Record<string, NistRequirement[]>>((acc, req) => {
+    const fn = req.category.toUpperCase();
+    if (!acc[fn]) acc[fn] = [];
+    acc[fn].push(req);
+    return acc;
+  }, {});
+
+  function toggleReq(reqId: string) {
+    setSelectedReqIds((prev) =>
+      prev.includes(reqId) ? prev.filter((id) => id !== reqId) : [...prev, reqId]
+    );
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -79,6 +147,7 @@ function EditDrawer({ control, onClose, onSaved }: {
             tags: form.tags
               ? form.tags.split(";").map((t) => t.trim()).filter(Boolean)
               : [],
+            frameworkRequirementIds: selectedReqIds,
           }),
         });
         const data = await res.json();
@@ -184,25 +253,100 @@ function EditDrawer({ control, onClose, onSaved }: {
             />
           </div>
 
-          {/* Framework mappings (read-only) */}
-          {control.frameworkMappings.length > 0 && (
-            <div>
-              <label className="mb-2 block text-xs font-semibold text-gray-700 dark:text-gray-300">Framework Mappings</label>
-              <div className="flex flex-wrap gap-1.5">
-                {control.frameworkMappings.map((m, i) => (
+          {/* ── NIST CSF Framework Mappings ── */}
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                NIST CSF 2.0 Mappings
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowReqPicker((v) => !v)}
+                className="flex items-center gap-1 rounded-lg border border-blue-300 dark:border-blue-700 px-2 py-1 text-xs font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40"
+              >
+                <Plus className="h-3 w-3" /> Add mapping
+              </button>
+            </div>
+
+            {/* Currently mapped chips */}
+            {selectedReqs.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {selectedReqs.map((req) => (
                   <span
-                    key={i}
-                    className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-                      FRAMEWORK_COLORS[m.requirement.framework.slug] ?? "bg-gray-100 text-gray-600")}
+                    key={req.id}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                      FUNCTION_COLORS[req.category.toUpperCase()] ?? "bg-gray-100 text-gray-600 border-gray-200"
+                    )}
                   >
-                    {FRAMEWORK_SHORT[m.requirement.framework.slug] ?? m.requirement.framework.slug}
-                    <span className="ml-1 font-normal opacity-70">{m.requirement.controlId}</span>
+                    {req.controlId}
+                    <button
+                      type="button"
+                      onClick={() => toggleReq(req.id)}
+                      className="ml-0.5 rounded-full hover:opacity-70"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
                   </span>
                 ))}
               </div>
-              <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">Framework mappings are managed via the seed configuration.</p>
-            </div>
-          )}
+            ) : (
+              <p className="mb-2 text-xs text-gray-400 dark:text-gray-500">
+                No NIST CSF mappings yet. Click "Add mapping" to link this control to a NIST requirement.
+              </p>
+            )}
+
+            {/* Requirement picker dropdown */}
+            {showReqPicker && (
+              <div className="rounded-xl border dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 p-3 space-y-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                  <input
+                    autoFocus
+                    placeholder="Search by control ID or keyword…"
+                    className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 pl-8 pr-3 py-1.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={reqSearch}
+                    onChange={(e) => setReqSearch(e.target.value)}
+                  />
+                </div>
+
+                {loadingReqs ? (
+                  <div className="flex items-center gap-2 text-xs text-gray-400 py-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading requirements…
+                  </div>
+                ) : (
+                  <div className="max-h-56 overflow-y-auto space-y-2">
+                    {Object.entries(groupedFiltered).length === 0 && (
+                      <p className="text-xs text-gray-400 py-2 text-center">
+                        {reqSearch ? "No matches found." : "All requirements already mapped!"}
+                      </p>
+                    )}
+                    {Object.entries(groupedFiltered).map(([fn, reqs]) => (
+                      <div key={fn}>
+                        <p className={cn(
+                          "mb-1 rounded px-2 py-0.5 text-[10px] font-bold w-fit",
+                          FUNCTION_COLORS[fn] ?? "bg-gray-200 text-gray-600"
+                        )}>{fn}</p>
+                        <div className="space-y-0.5">
+                          {reqs.map((req) => (
+                            <button
+                              key={req.id}
+                              type="button"
+                              onClick={() => { toggleReq(req.id); setReqSearch(""); }}
+                              className="w-full text-left rounded-lg px-2 py-1.5 text-xs hover:bg-white dark:hover:bg-gray-700 transition-colors"
+                            >
+                              <span className="font-mono font-semibold text-gray-700 dark:text-gray-300">{req.controlId}</span>
+                              <span className="ml-2 text-gray-500 dark:text-gray-400 truncate">{req.title}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {error && (
             <p className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 px-3 py-2 text-sm text-red-600 dark:text-red-400">
@@ -229,6 +373,8 @@ function EditDrawer({ control, onClose, onSaved }: {
   );
 }
 
+// ─── Controls Page ─────────────────────────────────────────────────────────────
+
 export default function ControlsPage() {
   const [controls, setControls] = useState<Control[]>([]);
   const [loading, setLoading] = useState(true);
@@ -252,9 +398,9 @@ export default function ControlsPage() {
     NOT_APPLICABLE: controls.filter((c) => c.status === "NOT_APPLICABLE").length,
   };
 
-  const frameworkSet = new Set<string>();
-  controls.forEach((c) => c.frameworkMappings.forEach((m) => frameworkSet.add(m.requirement.framework.slug)));
-  const frameworks = Array.from(frameworkSet);
+  const nistMapped = controls.filter((c) =>
+    c.frameworkMappings.some((m) => m.requirement.framework.slug === "NIST_CSF_2")
+  ).length;
 
   return (
     <>
@@ -276,13 +422,18 @@ export default function ControlsPage() {
           })}
         </div>
 
-        {/* Framework coverage note */}
-        {frameworks.length > 0 && (
+        {/* NIST CSF coverage banner */}
+        {controls.length > 0 && (
           <div className="rounded-xl border bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 dark:border-blue-900/50 p-4">
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
               <ShieldCheck className="mr-1.5 inline-block h-4 w-4 text-blue-600 dark:text-blue-400" />
-              Cross-framework coverage active across <strong>{frameworks.length}</strong> frameworks:{" "}
-              {frameworks.map((s) => FRAMEWORK_SHORT[s] ?? s).join(", ")}.
+              <strong>{nistMapped}</strong> of <strong>{controls.length}</strong> controls mapped to{" "}
+              <strong>NIST CSF 2.0</strong>.{" "}
+              {nistMapped < controls.length && (
+                <span className="text-amber-600 dark:text-amber-400">
+                  {controls.length - nistMapped} unmapped — click Edit on any control to add a mapping.
+                </span>
+              )}
             </p>
           </div>
         )}
@@ -295,7 +446,7 @@ export default function ControlsPage() {
             </h2>
             <ImportControlsButton onImported={() => {
               setLoading(true);
-              fetch("/api/controls").then((r) => r.json()).then((d) => setControls(d.data ?? [])).finally(() => setLoading(false));
+              fetch("/api/controls?pageSize=200").then((r) => r.json()).then((d) => setControls(d.data ?? [])).finally(() => setLoading(false));
             }} />
           </div>
           <div className="overflow-x-auto">
@@ -308,7 +459,7 @@ export default function ControlsPage() {
                     <th>Control</th>
                     <th>Category</th>
                     <th>Status</th>
-                    <th>Framework Mappings</th>
+                    <th>NIST CSF Mappings</th>
                     <th>Owner</th>
                     <th>Evidence</th>
                     <th className="w-16"></th>
@@ -317,12 +468,11 @@ export default function ControlsPage() {
                 <tbody>
                   {controls.map((control) => {
                     const Icon = STATUS_ICONS[control.status as keyof typeof STATUS_ICONS] ?? Minus;
-                    const fwMap = new Map<string, { slug: string; ids: string[] }>();
-                    control.frameworkMappings.forEach((m) => {
-                      const slug = m.requirement.framework.slug;
-                      if (!fwMap.has(slug)) fwMap.set(slug, { slug, ids: [] });
-                      fwMap.get(slug)!.ids.push(m.requirement.controlId);
-                    });
+
+                    // Only show NIST CSF mappings
+                    const nistMappings = control.frameworkMappings.filter(
+                      (m) => m.requirement.framework.slug === "NIST_CSF_2"
+                    );
 
                     return (
                       <tr key={control.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
@@ -350,13 +500,26 @@ export default function ControlsPage() {
                         </td>
                         <td>
                           <div className="flex flex-wrap gap-1.5">
-                            {Array.from(fwMap.entries()).map(([slug, info]) => (
-                              <span key={slug} className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold", FRAMEWORK_COLORS[slug] ?? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400")}>
-                                {FRAMEWORK_SHORT[slug] ?? slug}
-                                <span className="ml-1 font-normal opacity-70">×{info.ids.length}</span>
-                              </span>
-                            ))}
-                            {fwMap.size === 0 && <span className="text-xs text-gray-400">Unmapped</span>}
+                            {nistMappings.length > 0 ? (
+                              nistMappings.slice(0, 4).map((m) => (
+                                <span
+                                  key={m.requirementId}
+                                  className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800"
+                                >
+                                  {m.requirement.controlId}
+                                </span>
+                              ))
+                            ) : (
+                              <button
+                                onClick={() => setEditControl(control)}
+                                className="text-xs text-amber-600 dark:text-amber-400 hover:underline"
+                              >
+                                + Add mapping
+                              </button>
+                            )}
+                            {nistMappings.length > 4 && (
+                              <span className="text-xs text-gray-400">+{nistMappings.length - 4} more</span>
+                            )}
                           </div>
                         </td>
                         <td className="text-sm text-gray-600 dark:text-gray-400">{control.owner ?? <span className="text-gray-300 dark:text-gray-600">—</span>}</td>

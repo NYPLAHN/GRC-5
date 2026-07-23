@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useTransition } from "react";
 import Header from "@/components/layout/Header";
-import { AlertTriangle, Plus, X, ChevronDown, ChevronUp, Loader2, Sparkles } from "lucide-react";
+import { AlertTriangle, Plus, X, ChevronDown, ChevronUp, Loader2, Sparkles, Pencil } from "lucide-react";
 import { cn, getRiskRating, getRiskBadgeClasses, computeRiskScore } from "@/lib/utils";
 
 type RiskRow = {
@@ -46,11 +46,30 @@ function RiskScoreCell({ score }: { score: number; type: "inherent" | "residual"
   );
 }
 
-function RiskDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: (risk: RiskRow) => void }) {
+// ─── Create/Edit Drawer ────────────────────────────────────────────────────────
+
+function RiskDrawer({
+  onClose,
+  onSaved,
+  editRisk,
+}: {
+  onClose: () => void;
+  onSaved: (risk: RiskRow) => void;
+  editRisk?: RiskRow;
+}) {
+  const isEdit = Boolean(editRisk);
   const [form, setForm] = useState({
-    title: "", description: "", category: "", owner: "",
-    likelihood: "POSSIBLE", impact: "MODERATE", velocity: "MEDIUM",
-    residualScore: 5, treatment: "MITIGATE", treatmentDetails: "",
+    title: editRisk?.title ?? "",
+    description: editRisk?.description ?? "",
+    category: editRisk?.category ?? "",
+    owner: editRisk?.owner ?? "",
+    likelihood: editRisk?.likelihood ?? "POSSIBLE",
+    impact: editRisk?.impact ?? "MODERATE",
+    velocity: editRisk?.velocity ?? "MEDIUM",
+    residualScore: editRisk?.residualScore ?? 5,
+    treatment: editRisk?.treatment ?? "MITIGATE",
+    treatmentDetails: editRisk?.treatmentDetails ?? "",
+    isOpen: editRisk?.isOpen ?? true,
   });
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
@@ -63,13 +82,15 @@ function RiskDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: (risk:
     setError("");
     startTransition(async () => {
       try {
-        const res = await fetch("/api/risks", {
-          method: "POST",
+        const url = isEdit ? `/api/risks/${editRisk!.id}` : "/api/risks";
+        const method = isEdit ? "PATCH" : "POST";
+        const res = await fetch(url, {
+          method,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...form, residualScore: Number(form.residualScore) }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Failed to create risk");
+        if (!res.ok) throw new Error(data.error ?? (isEdit ? "Failed to update risk" : "Failed to create risk"));
         onSaved(data.data);
         onClose();
       } catch (err: any) {
@@ -83,7 +104,12 @@ function RiskDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: (risk:
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative z-10 h-full w-full max-w-lg overflow-y-auto bg-white dark:bg-gray-900 shadow-2xl">
         <div className="sticky top-0 flex items-center justify-between border-b dark:border-gray-800 bg-white dark:bg-gray-900 px-6 py-4">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">New Risk</h2>
+          <div>
+            {isEdit && <p className="text-xs font-mono font-bold text-gray-400 dark:text-gray-500">{editRisk!.riskId}</p>}
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+              {isEdit ? "Edit Risk" : "New Risk"}
+            </h2>
+          </div>
           <button onClick={onClose} className="rounded-lg p-1 hover:bg-gray-100 dark:hover:bg-gray-800">
             <X className="h-5 w-5 dark:text-gray-400" />
           </button>
@@ -158,13 +184,38 @@ function RiskDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: (risk:
             <textarea rows={3} className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.treatmentDetails} onChange={(e) => setForm((f) => ({ ...f, treatmentDetails: e.target.value }))} placeholder="Describe specific controls, timelines, and owners..." />
           </div>
 
+          {isEdit && (
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">Risk Status</label>
+              <div className="flex gap-2">
+                {[true, false].map((open) => (
+                  <button
+                    key={String(open)}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, isOpen: open }))}
+                    className={cn(
+                      "flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+                      form.isOpen === open
+                        ? open
+                          ? "border-orange-400 bg-orange-50 dark:bg-orange-950 text-orange-700 dark:text-orange-300"
+                          : "border-green-400 bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300"
+                        : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+                    )}
+                  >
+                    {open ? "Open" : "Closed"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {error && <p className="rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 px-3 py-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
           <div className="flex gap-3 border-t dark:border-gray-800 pt-4">
             <button type="button" onClick={onClose} className="flex-1 rounded-lg border dark:border-gray-700 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
             <button type="submit" disabled={isPending} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
               {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Create Risk
+              {isEdit ? "Save Changes" : "Create Risk"}
             </button>
           </div>
         </form>
@@ -172,6 +223,8 @@ function RiskDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: (risk:
     </div>
   );
 }
+
+// ─── Generate from Assessment Modal ──────────────────────────────────────────
 
 type Assessment = { id: string; title: string; startDate: string };
 
@@ -307,10 +360,13 @@ function GenerateRisksModal({
   );
 }
 
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function RisksPage() {
   const [risks, setRisks] = useState<RiskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDrawer, setShowDrawer] = useState(false);
+  const [editRisk, setEditRisk] = useState<RiskRow | null>(null);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [sortField, setSortField] = useState<"inherentScore" | "residualScore" | "riskId">("inherentScore");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -322,6 +378,15 @@ export default function RisksPage() {
   function handleSort(field: typeof sortField) {
     if (sortField === field) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortField(field); setSortDir("desc"); }
+  }
+
+  function handleSaved(updated: RiskRow) {
+    setRisks((prev) => {
+      const exists = prev.find((r) => r.id === updated.id);
+      return exists
+        ? prev.map((r) => (r.id === updated.id ? updated : r))
+        : [updated, ...prev];
+    });
   }
 
   const sorted = [...risks].sort((a, b) => {
@@ -389,13 +454,14 @@ export default function RisksPage() {
                   <th className="cursor-pointer select-none" onClick={() => handleSort("residualScore")}><span className="flex items-center gap-1">Residual <SortIcon field="residualScore" /></span></th>
                   <th>Treatment</th>
                   <th>Status</th>
+                  <th className="w-12"></th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={9} className="py-16 text-center"><Loader2 className="mx-auto h-6 w-6 animate-spin text-gray-300" /></td></tr>
+                  <tr><td colSpan={10} className="py-16 text-center"><Loader2 className="mx-auto h-6 w-6 animate-spin text-gray-300" /></td></tr>
                 ) : sorted.length === 0 ? (
-                  <tr><td colSpan={9} className="py-16 text-center text-sm text-gray-400 dark:text-gray-500">No risks in the register. Add your first risk.</td></tr>
+                  <tr><td colSpan={10} className="py-16 text-center text-sm text-gray-400 dark:text-gray-500">No risks in the register. Add your first risk.</td></tr>
                 ) : (
                   sorted.map((risk) => (
                     <tr key={risk.id}>
@@ -425,6 +491,14 @@ export default function RisksPage() {
                             : "bg-green-50 border-green-200 text-green-600 dark:bg-green-950 dark:border-green-800 dark:text-green-400"
                         )}>{risk.isOpen ? "Open" : "Closed"}</span>
                       </td>
+                      <td>
+                        <button
+                          onClick={() => setEditRisk(risk)}
+                          className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-blue-600 dark:hover:text-blue-400"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -434,7 +508,19 @@ export default function RisksPage() {
         </div>
       </main>
 
-      {showDrawer && <RiskDrawer onClose={() => setShowDrawer(false)} onSaved={(r) => setRisks((prev) => [r, ...prev])} />}
+      {showDrawer && (
+        <RiskDrawer
+          onClose={() => setShowDrawer(false)}
+          onSaved={handleSaved}
+        />
+      )}
+      {editRisk && (
+        <RiskDrawer
+          editRisk={editRisk}
+          onClose={() => setEditRisk(null)}
+          onSaved={handleSaved}
+        />
+      )}
       {showGenerateModal && (
         <GenerateRisksModal
           onClose={() => setShowGenerateModal(false)}

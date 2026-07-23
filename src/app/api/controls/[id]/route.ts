@@ -11,6 +11,8 @@ const UpdateControlSchema = z.object({
   owner: z.string().optional().nullable(),
   category: z.string().optional().nullable(),
   tags: z.array(z.string()).optional(),
+  // Pass the full desired set of FrameworkRequirement UUIDs (replace-style)
+  frameworkRequirementIds: z.array(z.string()).optional(),
 });
 
 export async function PATCH(
@@ -22,11 +24,22 @@ export async function PATCH(
     enforcePermission(user.role, "controls:write");
 
     const body = await request.json();
-    const validated = UpdateControlSchema.parse(body);
+    const { frameworkRequirementIds, ...rest } = UpdateControlSchema.parse(body);
+
+    // Build the Prisma update data
+    const updateData: any = { ...rest };
+
+    // If framework mapping IDs were supplied, replace all mappings atomically
+    if (frameworkRequirementIds !== undefined) {
+      updateData.frameworkMappings = {
+        deleteMany: {},
+        create: frameworkRequirementIds.map((reqId) => ({ requirementId: reqId })),
+      };
+    }
 
     const control = await prisma.internalControl.update({
       where: { id: params.id },
-      data: validated,
+      data: updateData,
       include: {
         frameworkMappings: {
           include: { requirement: { include: { framework: true } } },
@@ -41,7 +54,7 @@ export async function PATCH(
         action: "UPDATE_CONTROL",
         entityType: "InternalControl",
         entityId: control.id,
-        changes: validated,
+        changes: { ...rest, frameworkRequirementIds },
       },
     });
 
@@ -50,8 +63,8 @@ export async function PATCH(
     if (err.name === "ZodError") {
       return NextResponse.json({ error: "Validation error", details: err.errors }, { status: 400 });
     }
-    const status = err.message.startsWith("Unauthorized") ? 401
-      : err.message.startsWith("Forbidden") ? 403 : 500;
+    const status = err.message?.startsWith("Unauthorized") ? 401
+      : err.message?.startsWith("Forbidden") ? 403 : 500;
     return NextResponse.json({ error: err.message }, { status });
   }
 }
@@ -80,8 +93,8 @@ export async function GET(
 
     return NextResponse.json({ data: control });
   } catch (err: any) {
-    const status = err.message.startsWith("Unauthorized") ? 401
-      : err.message.startsWith("Forbidden") ? 403 : 500;
+    const status = err.message?.startsWith("Unauthorized") ? 401
+      : err.message?.startsWith("Forbidden") ? 403 : 500;
     return NextResponse.json({ error: err.message }, { status });
   }
 }
