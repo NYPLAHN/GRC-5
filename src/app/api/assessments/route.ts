@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
     const validated = CreateAssessmentSchema.parse(body);
     const { results, ...assessmentData } = validated;
 
-    // Resolve controlCode strings (e.g. "IC-001") to their database UUIDs
+    // Resolve controlCode strings (e.g. "NYPL-CSF-001") → InternalControl UUID
     let resolvedResults = results ?? [];
     if (resolvedResults.length > 0) {
       const controlCodes = Array.from(new Set(resolvedResults.map((r) => r.controlId)));
@@ -92,6 +92,25 @@ export async function POST(request: NextRequest) {
         );
       }
       resolvedResults = resolvedResults.map((r) => ({ ...r, controlId: codeToId[r.controlId] }));
+
+      // Resolve requirementId strings (e.g. "GV.OC-01") → FrameworkRequirement UUID
+      // The DB stores requirement IDs as "nist-GV.OC-01"; the CSV uses the short controlId form
+      const reqControlIds = Array.from(new Set(resolvedResults.map((r) => r.requirementId)));
+      const requirements = await prisma.frameworkRequirement.findMany({
+        where: { controlId: { in: reqControlIds } },
+        select: { id: true, controlId: true },
+      });
+      const reqToId: Record<string, string> = Object.fromEntries(
+        requirements.map((r) => [r.controlId, r.id])
+      );
+      const missingReqs = reqControlIds.filter((id) => !reqToId[id]);
+      if (missingReqs.length > 0) {
+        return NextResponse.json(
+          { error: `Unknown requirement IDs: ${missingReqs.join(", ")}` },
+          { status: 400 }
+        );
+      }
+      resolvedResults = resolvedResults.map((r) => ({ ...r, requirementId: reqToId[r.requirementId] }));
     }
 
     const assessment = await prisma.assessment.create({
