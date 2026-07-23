@@ -1,8 +1,6 @@
-"use client";
-
-import type { ReactNode } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { LucideIcon, TrendingUp, TrendingDown, Minus } from "lucide-react";
 
 interface StatsCardProps {
   title: string;
@@ -10,12 +8,11 @@ interface StatsCardProps {
   subtitle?: string;
   trend?: "up" | "down" | "neutral";
   trendValue?: string;
-  // Pre-rendered icon element (e.g. <AlertTriangle className="h-5 w-5 text-red-600" />).
-  // Must be a ReactNode, NOT a component reference, so it can be serialized across
-  // the Server → Client Component boundary.
-  icon: ReactNode;
+  icon: LucideIcon;
+  iconColor?: string;
   iconBg?: string;
   className?: string;
+  href?: string;
 }
 
 export default function StatsCard({
@@ -24,19 +21,22 @@ export default function StatsCard({
   subtitle,
   trend,
   trendValue,
-  icon,
+  icon: Icon,
+  iconColor = "text-blue-600",
   iconBg = "bg-blue-50",
   className,
+  href,
 }: StatsCardProps) {
   const TrendIcon =
     trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : Minus;
   const trendColor =
     trend === "up" ? "text-green-600" : trend === "down" ? "text-red-600" : "text-gray-400";
 
-  return (
+  const inner = (
     <div
       className={cn(
         "rounded-xl border bg-white dark:bg-gray-900 dark:border-gray-800 p-6 shadow-sm transition-shadow hover:shadow-md",
+        href && "cursor-pointer hover:border-blue-200 dark:hover:border-blue-800",
         className
       )}
     >
@@ -55,9 +55,14 @@ export default function StatsCard({
           )}
         </div>
         <div className={cn("rounded-lg p-3", iconBg)}>
-          {icon}
+          <Icon className={cn("h-5 w-5", iconColor)} />
         </div>
       </div>
     </div>
   );
+
+  if (href) {
+    return <Link href={href} className="block">{inner}</Link>;
+  }
+  return inner;
 }
