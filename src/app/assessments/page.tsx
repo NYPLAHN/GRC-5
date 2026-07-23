@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useTransition } from "react";
+import Link from "next/link";
 import Header from "@/components/layout/Header";
-import { Upload, Plus, X, Loader2, ClipboardList, CheckCircle2, AlertCircle } from "lucide-react";
+import { Upload, Plus, X, Loader2, ClipboardList, CheckCircle2, AlertCircle, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Assessment = {
@@ -129,7 +130,7 @@ export default function AssessmentsPage() {
               <div className="py-16 text-center text-sm text-gray-400 dark:text-gray-500">No assessments yet. Create your first assessment above.</div>
             ) : (
               assessments.map((a) => (
-                <div key={a.id} className="flex items-center gap-4 p-5 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                <Link key={a.id} href={`/assessments/${a.id}`} className="flex items-center gap-4 p-5 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer">
                   <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 dark:bg-blue-950">
                     <ClipboardList className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                   </div>
@@ -154,8 +155,9 @@ export default function AssessmentsPage() {
                       )}>{a.summary.score}%</div>
                       <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">compliance</p>
                     </div>
+                    <ChevronRight className="h-4 w-4 text-gray-300 dark:text-gray-600 flex-shrink-0" />
                   </div>
-                </div>
+                </Link>
               ))
             )}
           </div>

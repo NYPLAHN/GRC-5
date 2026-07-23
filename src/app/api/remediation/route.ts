@@ -9,9 +9,13 @@ const CreateRemediationSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
   controlId: z.string().min(1),
+  riskId: z.string().optional(),
   assignedTo: z.string().min(1), // Prisma user ID
   priority: z.number().int().min(1).max(4).default(2),
+  complexity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
   dueDate: z.string().optional(),
+  jiraEpicKey: z.string().optional(),
+  jiraEpicUrl: z.string().optional(),
   createJiraIssue: z.boolean().optional().default(false),
 });
 
@@ -33,6 +37,7 @@ export async function GET(request: NextRequest) {
       },
       include: {
         control: { select: { controlCode: true, title: true } },
+        risk: { select: { riskId: true, title: true } },
         assignee: { select: { id: true, name: true, email: true } },
       },
       orderBy: [{ priority: "asc" }, { createdAt: "desc" }],

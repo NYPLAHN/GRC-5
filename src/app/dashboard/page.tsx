@@ -4,6 +4,8 @@ import StatsCard from "@/components/dashboard/StatsCard";
 import ComplianceGauge from "@/components/dashboard/ComplianceGauge";
 import RiskHeatmap from "@/components/dashboard/RiskHeatmap";
 import RemediationBurndown from "@/components/dashboard/RemediationBurndown";
+import NistFunctionChart from "@/components/dashboard/NistFunctionChart";
+import NistRadarChart from "@/components/dashboard/NistRadarChart";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { enforcePermission } from "@/lib/rbac";
@@ -104,7 +106,21 @@ async function getDashboardData() {
     isOpen: r.isOpen,
   }));
 
-  return { risks, controls, complianceSummaries, remediations, overdueRemediations, burndownData, heatmapData };
+  // Per-NIST-function compliance stats (from most recent assessment across all active frameworks)
+  const NIST_FUNCTIONS = ["GOVERN", "IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"];
+  const allNistReqs = activeFrameworks.flatMap((fw) => fw.requirements);
+  const functionStats = NIST_FUNCTIONS.map((fn) => {
+    const fnReqs = allNistReqs.filter((r) => r.category === fn);
+    const fnTotal = fnReqs.length;
+    if (fnTotal === 0) return null;
+    const fnCompliant = fnReqs.filter((r) => r.assessmentResults[0]?.status === "COMPLIANT").length;
+    const fnPartial = fnReqs.filter((r) => r.assessmentResults[0]?.status === "PARTIAL").length;
+    const fnNonCompliant = fnReqs.filter((r) => r.assessmentResults[0]?.status === "NON_COMPLIANT").length;
+    const fnScore = Math.round(((fnCompliant + fnPartial * 0.5) / fnTotal) * 100);
+    return { function: fn, total: fnTotal, compliant: fnCompliant, partial: fnPartial, nonCompliant: fnNonCompliant, score: fnScore };
+  }).filter(Boolean) as { function: string; total: number; compliant: number; partial: number; nonCompliant: number; score: number }[];
+
+  return { risks, controls, complianceSummaries, remediations, overdueRemediations, burndownData, heatmapData, functionStats };
 }
 
 export default async function DashboardPage() {
@@ -178,6 +194,12 @@ export default async function DashboardPage() {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <ComplianceGauge frameworks={data.complianceSummaries} />
           <RiskHeatmap data={data.heatmapData} />
+        </div>
+
+        {/* NIST Function Charts */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <NistFunctionChart data={data.functionStats} />
+          <NistRadarChart data={data.functionStats} />
         </div>
 
         {/* Burndown */}
