@@ -109,3 +109,20 @@
 .data-table tr:hover td {
   @apply bg-gray-50 dark:bg-gray-800/50;
 }
+
+/* Print-friendly reports: hide app chrome, expand layout */
+@media print {
+  .grc-sidebar,
+  .print-hidden {
+    display: none !important;
+  }
+  .grc-main {
+    margin-left: 0 !important;
+  }
+  body {
+    background: white !important;
+  }
+  .avoid-break {
+    break-inside: avoid;
+  }
+}

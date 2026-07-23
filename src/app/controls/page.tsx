@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { Fragment, useState, useEffect, useMemo, useTransition } from "react";
 import Header from "@/components/layout/Header";
 import {
   ShieldCheck,
@@ -13,8 +13,24 @@ import {
   Loader2,
   Pencil,
   Upload,
+  ChevronDown,
+  ChevronRight,
+  Search,
+  FileCheck2,
+  Lightbulb,
+  FilterX,
 } from "lucide-react";
-import { cn, formatControlStatus, getControlStatusClasses } from "@/lib/utils";
+import {
+  cn,
+  formatControlStatus,
+  getControlStatusClasses,
+  getCriticalityClasses,
+  getMaturityClasses,
+  getEvidenceSuggestions,
+  formatFileSize,
+  MATURITY_LABELS,
+  CRITICALITY_OPTIONS,
+} from "@/lib/utils";
 import Link from "next/link";
 
 type FrameworkMapping = {
@@ -32,6 +48,9 @@ type ControlRow = {
   title: string;
   description: string;
   status: string;
+  criticality: string;
+  maturityLevel: number;
+  evidenceExamples: string | null;
   owner: string | null;
   category: string | null;
   tags: string[];
@@ -62,6 +81,126 @@ const FRAMEWORK_SHORT: Record<string, string> = {
   ISO_27001_2022: "ISO",
 };
 
+const inputCls =
+  "w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+const filterCls =
+  "w-full rounded-md border dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 px-2 py-1 text-[11px] font-normal focus:outline-none focus:ring-1 focus:ring-blue-500";
+
+// ─── Evidence upload (inline, pre-linked to a control) ────────────────────
+
+function EvidenceUploadForm({
+  control,
+  onUploaded,
+  onClose,
+}: {
+  control: ControlRow;
+  onUploaded: () => void;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState({
+    title: "",
+    fileName: "",
+    fileSize: 0,
+    fileType: "PDF" as string,
+    storageKey: "",
+    tags: "",
+  });
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState("");
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const ext = file.name.split(".").pop()?.toUpperCase() ?? "OTHER";
+    const type = ["PDF", "CSV", "JSON"].includes(ext) ? ext : file.type.startsWith("image/") ? "IMAGE" : "OTHER";
+    setForm((f) => ({
+      ...f,
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: type,
+      storageKey: `evidence/${Date.now()}-${file.name}`,
+      title: f.title || file.name.replace(/\.[^.]+$/, ""),
+    }));
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    startTransition(async () => {
+      try {
+        const res = await fetch("/api/evidence", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: form.title,
+            fileName: form.fileName,
+            fileSize: Number(form.fileSize),
+            fileType: form.fileType,
+            storageKey: form.storageKey,
+            controlId: control.id,
+            tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Upload failed");
+        onUploaded();
+        onClose();
+      } catch (err: any) {
+        setError(err.message);
+      }
+    });
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-3 space-y-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 p-4">
+      <p className="text-xs font-semibold text-blue-800 dark:text-blue-300">
+        Upload evidence for {control.controlCode}
+      </p>
+      <label className="flex cursor-pointer flex-col items-center gap-1.5 rounded-lg border-2 border-dashed border-blue-200 dark:border-blue-800 bg-white dark:bg-gray-900 p-4 hover:border-blue-400 transition-colors">
+        <Upload className="h-5 w-5 text-blue-400" />
+        <span className="text-xs text-gray-500 dark:text-gray-400">{form.fileName || "Click to select a file"}</span>
+        {form.fileSize > 0 && (
+          <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400">
+            {formatFileSize(form.fileSize)} · {form.fileType}
+          </span>
+        )}
+        <input type="file" className="hidden" onChange={handleFileSelect} />
+      </label>
+      <div className="grid grid-cols-2 gap-3">
+        <input
+          required
+          className={inputCls}
+          placeholder="Evidence title *"
+          value={form.title}
+          onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+        />
+        <input
+          className={inputCls}
+          placeholder="Tags (comma-separated)"
+          value={form.tags}
+          onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))}
+        />
+      </div>
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      <div className="flex gap-2">
+        <button type="button" onClick={onClose} className="rounded-lg border dark:border-gray-700 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-800">
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={isPending || !form.fileName}
+          className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+          Save Evidence
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// ─── Edit drawer ───────────────────────────────────────────────────────────
+
 function EditDrawer({
   control,
   onClose,
@@ -75,6 +214,9 @@ function EditDrawer({
     title: control.title,
     description: control.description,
     status: control.status,
+    criticality: control.criticality ?? "MEDIUM",
+    maturityLevel: control.maturityLevel ?? 0,
+    evidenceExamples: control.evidenceExamples ?? "",
     owner: control.owner ?? "",
     category: control.category ?? "",
     tags: control.tags.join("; "),
@@ -82,7 +224,6 @@ function EditDrawer({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
 
-  // Build framework mapping display
   const fwMap = new Map<string, { slug: string; ids: string[] }>();
   control.frameworkMappings.forEach((m) => {
     const slug = m.requirement.framework.slug;
@@ -95,14 +236,15 @@ function EditDrawer({
     setError("");
     startTransition(async () => {
       try {
-        const tagsArray = form.tags
-          .split(";")
-          .map((t) => t.trim())
-          .filter(Boolean);
+        const tagsArray = form.tags.split(";").map((t) => t.trim()).filter(Boolean);
         const res = await fetch(`/api/controls/${control.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...form, tags: tagsArray }),
+          body: JSON.stringify({
+            ...form,
+            maturityLevel: Number(form.maturityLevel),
+            tags: tagsArray,
+          }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Failed to update control");
@@ -118,7 +260,7 @@ function EditDrawer({
     <div className="fixed inset-0 z-50 flex items-start justify-end">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative z-10 h-full w-full max-w-lg overflow-y-auto bg-white dark:bg-gray-900 shadow-2xl">
-        <div className="sticky top-0 flex items-center justify-between border-b dark:border-gray-800 bg-white dark:bg-gray-900 px-6 py-4">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b dark:border-gray-800 bg-white dark:bg-gray-900 px-6 py-4">
           <div>
             <p className="text-xs font-mono font-bold text-gray-400 dark:text-gray-500">{control.controlCode}</p>
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Edit Control</h2>
@@ -129,27 +271,14 @@ function EditDrawer({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5 p-6">
-          {/* Title */}
           <div>
             <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">Title *</label>
-            <input
-              required
-              className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={form.title}
-              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-            />
+            <input required className={inputCls} value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
           </div>
 
-          {/* Description */}
           <div>
             <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">Description *</label>
-            <textarea
-              required
-              rows={4}
-              className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={form.description}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-            />
+            <textarea required rows={5} className={cn(inputCls, "resize-y")} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
           </div>
 
           {/* Status grid picker */}
@@ -178,26 +307,71 @@ function EditDrawer({
             </div>
           </div>
 
+          {/* Criticality & Maturity */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-2 block text-xs font-semibold text-gray-700 dark:text-gray-300">Criticality *</label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {CRITICALITY_OPTIONS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, criticality: c }))}
+                    className={cn(
+                      "rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-colors",
+                      form.criticality === c
+                        ? getCriticalityClasses(c) + " ring-1 ring-current"
+                        : "border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+                    )}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="mb-2 block text-xs font-semibold text-gray-700 dark:text-gray-300">
+                Maturity Level: <span className={cn("rounded px-1.5 py-0.5", getMaturityClasses(Number(form.maturityLevel)))}>{form.maturityLevel} – {MATURITY_LABELS[Number(form.maturityLevel)]}</span>
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={5}
+                step={1}
+                value={form.maturityLevel}
+                onChange={(e) => setForm((f) => ({ ...f, maturityLevel: Number(e.target.value) }))}
+                className="w-full accent-blue-600"
+              />
+              <div className="flex justify-between text-[9px] text-gray-400">
+                <span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+              </div>
+            </div>
+          </div>
+
           {/* Owner & Category */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">Owner</label>
-              <input
-                className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={form.owner}
-                onChange={(e) => setForm((f) => ({ ...f, owner: e.target.value }))}
-                placeholder="CISO, IT Security..."
-              />
+              <input className={inputCls} value={form.owner} onChange={(e) => setForm((f) => ({ ...f, owner: e.target.value }))} placeholder="CISO, IT Security..." />
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">Category</label>
-              <input
-                className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={form.category}
-                onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                placeholder="Access Control, Network..."
-              />
+              <input className={inputCls} value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="Access Control, Network..." />
             </div>
+          </div>
+
+          {/* Evidence examples */}
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">
+              Suggested Evidence <span className="font-normal text-gray-400">what artifacts prove this control works</span>
+            </label>
+            <textarea
+              rows={3}
+              className={cn(inputCls, "resize-y")}
+              value={form.evidenceExamples}
+              onChange={(e) => setForm((f) => ({ ...f, evidenceExamples: e.target.value }))}
+              placeholder={getEvidenceSuggestions(form.category || null).slice(0, 2).join("; ") + "..."}
+            />
           </div>
 
           {/* Tags */}
@@ -205,12 +379,7 @@ function EditDrawer({
             <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">
               Tags <span className="font-normal text-gray-400">semicolon-separated</span>
             </label>
-            <input
-              className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={form.tags}
-              onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))}
-              placeholder="MFA; Encryption; Zero Trust"
-            />
+            <input className={inputCls} value={form.tags} onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))} placeholder="MFA; Encryption; Zero Trust" />
           </div>
 
           {/* Framework mappings — read-only */}
@@ -237,18 +406,10 @@ function EditDrawer({
           )}
 
           <div className="flex gap-3 border-t dark:border-gray-800 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 rounded-lg border dark:border-gray-700 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
+            <button type="button" onClick={onClose} className="flex-1 rounded-lg border dark:border-gray-700 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={isPending}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-            >
+            <button type="submit" disabled={isPending} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
               {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               Save Changes
             </button>
@@ -259,10 +420,22 @@ function EditDrawer({
   );
 }
 
+// ─── Page ──────────────────────────────────────────────────────────────────
+
 export default function ControlsPage() {
   const [controls, setControls] = useState<ControlRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editControl, setEditControl] = useState<ControlRow | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [uploadingFor, setUploadingFor] = useState<string | null>(null);
+
+  // Filters
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [searchFilter, setSearchFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [criticalityFilter, setCriticalityFilter] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("");
+  const [frameworkFilter, setFrameworkFilter] = useState("");
 
   useEffect(() => {
     fetch("/api/controls?pageSize=200")
@@ -275,6 +448,14 @@ export default function ControlsPage() {
     setControls((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
   }
 
+  function bumpEvidenceCount(controlId: string) {
+    setControls((prev) =>
+      prev.map((c) =>
+        c.id === controlId ? { ...c, _count: { ...c._count, evidence: c._count.evidence + 1 } } : c
+      )
+    );
+  }
+
   const statusCounts = {
     IMPLEMENTED: controls.filter((c) => c.status === "IMPLEMENTED").length,
     IN_PROGRESS: controls.filter((c) => c.status === "IN_PROGRESS").length,
@@ -282,28 +463,76 @@ export default function ControlsPage() {
     NOT_APPLICABLE: controls.filter((c) => c.status === "NOT_APPLICABLE").length,
   };
 
-  const frameworkSet = new Set<string>();
-  controls.forEach((c) =>
-    c.frameworkMappings.forEach((m) => frameworkSet.add(m.requirement.framework.slug))
+  const categories = useMemo(
+    () => Array.from(new Set(controls.map((c) => c.category).filter(Boolean))).sort() as string[],
+    [controls]
   );
-  const frameworks = Array.from(frameworkSet);
+  const owners = useMemo(
+    () => Array.from(new Set(controls.map((c) => c.owner).filter(Boolean))).sort() as string[],
+    [controls]
+  );
+  const frameworks = useMemo(() => {
+    const set = new Set<string>();
+    controls.forEach((c) => c.frameworkMappings.forEach((m) => set.add(m.requirement.framework.slug)));
+    return Array.from(set);
+  }, [controls]);
+
+  const hasFilters = Boolean(statusFilter || searchFilter || categoryFilter || criticalityFilter || ownerFilter || frameworkFilter);
+
+  const filtered = controls.filter((c) => {
+    if (statusFilter && c.status !== statusFilter) return false;
+    if (categoryFilter && c.category !== categoryFilter) return false;
+    if (criticalityFilter && c.criticality !== criticalityFilter) return false;
+    if (ownerFilter && c.owner !== ownerFilter) return false;
+    if (frameworkFilter && !c.frameworkMappings.some((m) => m.requirement.framework.slug === frameworkFilter)) return false;
+    if (searchFilter) {
+      const q = searchFilter.toLowerCase();
+      if (
+        !c.controlCode.toLowerCase().includes(q) &&
+        !c.title.toLowerCase().includes(q) &&
+        !c.description.toLowerCase().includes(q) &&
+        !c.tags.some((t) => t.toLowerCase().includes(q))
+      )
+        return false;
+    }
+    return true;
+  });
+
+  function clearFilters() {
+    setStatusFilter("");
+    setSearchFilter("");
+    setCategoryFilter("");
+    setCriticalityFilter("");
+    setOwnerFilter("");
+    setFrameworkFilter("");
+  }
 
   return (
     <>
       <Header title="Controls Library" subtitle="Map once, comply to many frameworks" />
       <main className="grc-page space-y-6">
-        {/* Status summary */}
+        {/* Status summary — clickable filters */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {(["IMPLEMENTED", "IN_PROGRESS", "NOT_STARTED", "NOT_APPLICABLE"] as const).map((status) => {
             const Icon = STATUS_ICONS[status];
+            const active = statusFilter === status;
             return (
-              <div key={status} className={cn("flex items-center gap-3 rounded-xl border p-4", getControlStatusClasses(status))}>
+              <button
+                key={status}
+                onClick={() => setStatusFilter(active ? "" : status)}
+                title={active ? "Click to clear filter" : `Filter table by ${formatControlStatus(status)}`}
+                className={cn(
+                  "flex items-center gap-3 rounded-xl border p-4 text-left transition-all cursor-pointer hover:shadow-md",
+                  getControlStatusClasses(status),
+                  active && "ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-gray-950"
+                )}
+              >
                 <Icon className="h-5 w-5" />
                 <div>
                   <p className="text-xl font-bold">{statusCounts[status]}</p>
                   <p className="text-xs">{formatControlStatus(status)}</p>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -313,10 +542,8 @@ export default function ControlsPage() {
           <div className="rounded-xl border bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 dark:border-blue-900/50 p-4">
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
               <ShieldCheck className="mr-1.5 inline-block h-4 w-4 text-blue-600 dark:text-blue-400" />
-              Cross-framework coverage active across{" "}
-              <strong>{frameworks.length}</strong> frameworks:{" "}
-              {frameworks.map((s) => FRAMEWORK_SHORT[s] ?? s).join(", ")}.
-              Each internal control maps to all relevant framework requirements.
+              Cross-framework coverage active across <strong>{frameworks.length}</strong> frameworks:{" "}
+              {frameworks.map((s) => FRAMEWORK_SHORT[s] ?? s).join(", ")}. Each internal control maps to all relevant framework requirements.
             </p>
           </div>
         )}
@@ -324,9 +551,19 @@ export default function ControlsPage() {
         {/* Controls table */}
         <div className="overflow-hidden rounded-xl border dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm">
           <div className="flex items-center justify-between border-b dark:border-gray-800 px-6 py-4">
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              Internal Controls ({controls.length})
-            </h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Internal Controls ({filtered.length}{hasFilters ? ` of ${controls.length}` : ""})
+              </h2>
+              {hasFilters && (
+                <button
+                  onClick={clearFilters}
+                  className="flex items-center gap-1 rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 px-2.5 py-1 text-[11px] font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900"
+                >
+                  <FilterX className="h-3 w-3" /> Clear filters
+                </button>
+              )}
+            </div>
             <Link
               href="/controls/import"
               className="flex items-center gap-2 rounded-lg border dark:border-gray-700 px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -339,42 +576,103 @@ export default function ControlsPage() {
             <table className="data-table w-full">
               <thead>
                 <tr>
+                  <th className="w-8"></th>
                   <th>Control</th>
                   <th>Category</th>
                   <th>Status</th>
-                  <th>Framework Mappings</th>
+                  <th>Criticality</th>
+                  <th>Maturity</th>
+                  <th>Frameworks</th>
                   <th>Owner</th>
                   <th>Evidence</th>
                   <th className="w-16"></th>
+                </tr>
+                {/* Header filter row */}
+                <tr className="bg-gray-50/70 dark:bg-gray-800/40">
+                  <th></th>
+                  <th className="py-2 pr-2">
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-400" />
+                      <input
+                        className={cn(filterCls, "pl-6")}
+                        placeholder="Search code, title, tag..."
+                        value={searchFilter}
+                        onChange={(e) => setSearchFilter(e.target.value)}
+                      />
+                    </div>
+                  </th>
+                  <th className="py-2 pr-2">
+                    <select className={filterCls} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+                      <option value="">All categories</option>
+                      {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </th>
+                  <th className="py-2 pr-2">
+                    <select className={filterCls} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                      <option value="">All statuses</option>
+                      {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{formatControlStatus(s)}</option>)}
+                    </select>
+                  </th>
+                  <th className="py-2 pr-2">
+                    <select className={filterCls} value={criticalityFilter} onChange={(e) => setCriticalityFilter(e.target.value)}>
+                      <option value="">All</option>
+                      {CRITICALITY_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </th>
+                  <th></th>
+                  <th className="py-2 pr-2">
+                    <select className={filterCls} value={frameworkFilter} onChange={(e) => setFrameworkFilter(e.target.value)}>
+                      <option value="">All</option>
+                      {frameworks.map((f) => <option key={f} value={f}>{FRAMEWORK_SHORT[f] ?? f}</option>)}
+                    </select>
+                  </th>
+                  <th className="py-2 pr-2">
+                    <select className={filterCls} value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}>
+                      <option value="">All owners</option>
+                      {owners.map((o) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </th>
+                  <th></th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="py-16 text-center">
+                    <td colSpan={10} className="py-16 text-center">
                       <Loader2 className="mx-auto h-6 w-6 animate-spin text-gray-300" />
                     </td>
                   </tr>
-                ) : controls.length === 0 ? (
+                ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-16 text-center text-sm text-gray-400 dark:text-gray-500">
-                      No controls found. Run the database seed to load sample data.
+                    <td colSpan={10} className="py-16 text-center text-sm text-gray-400 dark:text-gray-500">
+                      {hasFilters ? "No controls match the current filters." : "No controls found. Run the database seed to load sample data."}
                     </td>
                   </tr>
                 ) : (
-                  controls.map((control) => {
+                  filtered.map((control) => {
                     const Icon = STATUS_ICONS[control.status as keyof typeof STATUS_ICONS] ?? Minus;
+                    const isExpanded = expandedId === control.id;
                     const fwMap = new Map<string, { slug: string; ids: string[] }>();
                     control.frameworkMappings.forEach((m) => {
                       const slug = m.requirement.framework.slug;
                       if (!fwMap.has(slug)) fwMap.set(slug, { slug, ids: [] });
                       fwMap.get(slug)!.ids.push(m.requirement.controlId);
                     });
+                    const suggestions = control.evidenceExamples
+                      ? control.evidenceExamples.split(/;|\n/).map((s) => s.trim()).filter(Boolean)
+                      : getEvidenceSuggestions(control.category);
 
                     return (
-                      <tr key={control.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                        <td>
-                          <div className="flex items-start gap-2">
+                      <Fragment key={control.id}>
+                        <tr
+                          className={cn("hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer", isExpanded && "bg-blue-50/40 dark:bg-blue-950/20")}
+                          onClick={() => setExpandedId(isExpanded ? null : control.id)}
+                        >
+                          <td className="pl-3">
+                            {isExpanded ? <ChevronDown className="h-4 w-4 text-blue-500" /> : <ChevronRight className="h-4 w-4 text-gray-300 dark:text-gray-600" />}
+                          </td>
+                          <td>
                             <div>
                               <p className="font-semibold text-gray-900 dark:text-gray-100 text-xs">{control.controlCode}</p>
                               <p className="mt-0.5 text-sm text-gray-700 dark:text-gray-300 font-medium">{control.title}</p>
@@ -394,43 +692,105 @@ export default function ControlsPage() {
                                 </div>
                               )}
                             </div>
-                          </div>
-                        </td>
-                        <td className="text-gray-500 dark:text-gray-400 text-xs">{control.category ?? "—"}</td>
-                        <td>
-                          <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium", getControlStatusClasses(control.status))}>
-                            <Icon className="h-3 w-3" />
-                            {formatControlStatus(control.status)}
-                          </span>
-                        </td>
-                        <td>
-                          <div className="flex flex-wrap gap-1.5">
-                            {Array.from(fwMap.entries()).map(([slug, info]) => (
-                              <span key={slug} className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold", FRAMEWORK_COLORS[slug] ?? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400")}>
-                                {FRAMEWORK_SHORT[slug] ?? slug}
-                                <span className="ml-1 font-normal opacity-70">×{info.ids.length}</span>
-                              </span>
-                            ))}
-                            {fwMap.size === 0 && <span className="text-xs text-gray-400">Unmapped</span>}
-                          </div>
-                        </td>
-                        <td className="text-sm text-gray-600 dark:text-gray-400">
-                          {control.owner ?? <span className="text-gray-300 dark:text-gray-600">—</span>}
-                        </td>
-                        <td>
-                          <span className="inline-flex items-center gap-1 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2 py-0.5 text-xs text-gray-500 dark:text-gray-400">
-                            {control._count.evidence} artifact{control._count.evidence !== 1 ? "s" : ""}
-                          </span>
-                        </td>
-                        <td>
-                          <button
-                            onClick={() => setEditControl(control)}
-                            className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-blue-600 dark:hover:text-blue-400"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="text-gray-500 dark:text-gray-400 text-xs">{control.category ?? "—"}</td>
+                          <td>
+                            <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium whitespace-nowrap", getControlStatusClasses(control.status))}>
+                              <Icon className="h-3 w-3" />
+                              {formatControlStatus(control.status)}
+                            </span>
+                          </td>
+                          <td>
+                            <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold", getCriticalityClasses(control.criticality))}>
+                              {control.criticality}
+                            </span>
+                          </td>
+                          <td>
+                            <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap", getMaturityClasses(control.maturityLevel))}>
+                              L{control.maturityLevel} · {MATURITY_LABELS[control.maturityLevel]}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="flex flex-wrap gap-1.5">
+                              {Array.from(fwMap.entries()).map(([slug, info]) => (
+                                <span key={slug} className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold", FRAMEWORK_COLORS[slug] ?? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400")}>
+                                  {FRAMEWORK_SHORT[slug] ?? slug}
+                                  <span className="ml-1 font-normal opacity-70">×{info.ids.length}</span>
+                                </span>
+                              ))}
+                              {fwMap.size === 0 && <span className="text-xs text-gray-400">Unmapped</span>}
+                            </div>
+                          </td>
+                          <td className="text-sm text-gray-600 dark:text-gray-400">
+                            {control.owner ?? <span className="text-gray-300 dark:text-gray-600">—</span>}
+                          </td>
+                          <td>
+                            <span className="inline-flex items-center gap-1 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2 py-0.5 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                              {control._count.evidence} artifact{control._count.evidence !== 1 ? "s" : ""}
+                            </span>
+                          </td>
+                          <td>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setEditControl(control); }}
+                              className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-blue-600 dark:hover:text-blue-400"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+
+                        {/* Expanded detail row */}
+                        {isExpanded && (
+                          <tr className="bg-blue-50/40 dark:bg-blue-950/20">
+                            <td></td>
+                            <td colSpan={9} className="pb-4 pr-6">
+                              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                                {/* Description */}
+                                <div className="rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+                                  <p className="mb-1.5 text-xs font-semibold text-gray-700 dark:text-gray-300">Description</p>
+                                  <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-line">{control.description}</p>
+                                </div>
+
+                                {/* Evidence guidance + upload */}
+                                <div className="rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+                                  <div className="mb-1.5 flex items-center justify-between">
+                                    <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-300">
+                                      <Lightbulb className="h-3.5 w-3.5 text-amber-500" />
+                                      Suggested Evidence
+                                      {!control.evidenceExamples && <span className="font-normal text-gray-400">(auto-suggested from category)</span>}
+                                    </p>
+                                    {uploadingFor !== control.id && (
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setUploadingFor(control.id); }}
+                                        className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-700"
+                                      >
+                                        <FileCheck2 className="h-3 w-3" /> Upload Evidence
+                                      </button>
+                                    )}
+                                  </div>
+                                  <ul className="space-y-1">
+                                    {suggestions.map((s, i) => (
+                                      <li key={i} className="flex items-start gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+                                        <CheckCircle2 className="mt-0.5 h-3 w-3 flex-shrink-0 text-green-500" />
+                                        {s}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                  {uploadingFor === control.id && (
+                                    <div onClick={(e) => e.stopPropagation()}>
+                                      <EvidenceUploadForm
+                                        control={control}
+                                        onUploaded={() => bumpEvidenceCount(control.id)}
+                                        onClose={() => setUploadingFor(null)}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     );
                   })
                 )}
@@ -441,11 +801,7 @@ export default function ControlsPage() {
       </main>
 
       {editControl && (
-        <EditDrawer
-          control={editControl}
-          onClose={() => setEditControl(null)}
-          onSaved={handleSaved}
-        />
+        <EditDrawer control={editControl} onClose={() => setEditControl(null)} onSaved={handleSaved} />
       )}
     </>
   );

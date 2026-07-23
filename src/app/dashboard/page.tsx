@@ -6,6 +6,8 @@ import RiskHeatmap from "@/components/dashboard/RiskHeatmap";
 import RemediationBurndown from "@/components/dashboard/RemediationBurndown";
 import NistFunctionChart from "@/components/dashboard/NistFunctionChart";
 import NistRadarChart from "@/components/dashboard/NistRadarChart";
+import ControlPostureChart from "@/components/dashboard/ControlPostureChart";
+import { computeControlRiskScore } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { enforcePermission } from "@/lib/rbac";
@@ -37,7 +39,13 @@ async function getDashboardData() {
   });
 
   const controls = await prisma.internalControl.findMany({
-    select: { status: true },
+    select: {
+      status: true,
+      controlCode: true,
+      title: true,
+      criticality: true,
+      maturityLevel: true,
+    },
   });
 
   const frameworks = await prisma.framework.findMany({
@@ -120,7 +128,21 @@ async function getDashboardData() {
     return { function: fn, total: fnTotal, compliant: fnCompliant, partial: fnPartial, nonCompliant: fnNonCompliant, score: fnScore };
   }).filter(Boolean) as { function: string; total: number; compliant: number; partial: number; nonCompliant: number; score: number }[];
 
-  return { risks, controls, complianceSummaries, remediations, overdueRemediations, burndownData, heatmapData, functionStats };
+  // Control posture: per-control risk score weighted by criticality
+  const scoredControls = controls
+    .filter((c) => c.status !== "NOT_APPLICABLE")
+    .map((c) => ({
+      controlCode: c.controlCode,
+      title: c.title,
+      criticality: c.criticality as string,
+      maturityLevel: c.maturityLevel,
+      riskScore: computeControlRiskScore(c.criticality as string, c.maturityLevel),
+    }));
+  const overallControlRisk = scoredControls.length > 0
+    ? Math.round(scoredControls.reduce((sum, c) => sum + c.riskScore, 0) / scoredControls.length)
+    : 0;
+
+  return { risks, controls, complianceSummaries, remediations, overdueRemediations, burndownData, heatmapData, functionStats, scoredControls, overallControlRisk };
 }
 
 export default async function DashboardPage() {
@@ -189,6 +211,9 @@ export default async function DashboardPage() {
             href="/assessments"
           />
         </div>
+
+        {/* Control posture: overall risk score + maturity */}
+        <ControlPostureChart controls={data.scoredControls} overallScore={data.overallControlRisk} />
 
         {/* Charts Row */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -275,7 +300,7 @@ export default async function DashboardPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{rem.title}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {rem.control.controlCode} · {rem.assignee.name ?? rem.assignee.email}
+                        {rem.control?.controlCode ?? "Unlinked"} · {rem.assignee.name ?? rem.assignee.email}
                         {rem.dueDate && (
                           <span className={isOverdue ? "text-red-500 font-medium" : ""}>
                             {" "}· Due {formatDate(rem.dueDate)}

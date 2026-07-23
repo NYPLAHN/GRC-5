@@ -16,6 +16,13 @@ const UpdateRiskSchema = z.object({
   residualScore: z.number().int().min(1).max(25).optional(),
   treatment: z.enum(["MITIGATE", "TRANSFER", "ACCEPT", "AVOID"]).optional(),
   treatmentDetails: z.string().optional(),
+  source: z.enum(["NIST_CSF_REVIEW", "PENETRATION_TEST", "VULNERABILITY_SCAN", "SELF_IDENTIFIED", "INTERNAL_AUDIT", "EXTERNAL_AUDIT", "THIRD_PARTY", "INCIDENT", "OTHER"]).optional(),
+  riskLead: z.string().optional(),
+  isException: z.boolean().optional(),
+  exceptionJustification: z.string().optional(),
+  exceptionApprovedBy: z.string().optional(),
+  exceptionReviewCadence: z.enum(["MONTHLY", "QUARTERLY", "SEMI_ANNUAL", "ANNUAL"]).optional(),
+  exceptionNextReview: z.string().optional(),
   isOpen: z.boolean().optional(),
   reviewDate: z.string().optional(),
 });
@@ -74,6 +81,7 @@ export async function PATCH(
         ...validated,
         ...inherentScoreUpdate,
         reviewDate: validated.reviewDate ? new Date(validated.reviewDate) : undefined,
+        exceptionNextReview: validated.exceptionNextReview ? new Date(validated.exceptionNextReview) : undefined,
       },
     });
 

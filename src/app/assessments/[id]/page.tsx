@@ -135,6 +135,22 @@ export default async function AssessmentDetailPage({
           ))}
         </div>
 
+        {/* Score calculation explainer */}
+        <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/30 p-5">
+          <p className="text-sm font-semibold text-blue-900 dark:text-blue-300 mb-2">How this score is calculated</p>
+          <p className="text-sm text-blue-800 dark:text-blue-400">
+            Compliance score = (Compliant + 0.5 × Partial) ÷ Total requirements assessed.
+          </p>
+          <p className="mt-1.5 font-mono text-sm text-blue-700 dark:text-blue-400">
+            ({compliant} + 0.5 × {partial}) ÷ {total} = {total > 0 ? ((compliant + partial * 0.5) / total).toFixed(3) : "0"} → <strong>{score}%</strong>
+          </p>
+          <p className="mt-2 text-xs text-blue-600/80 dark:text-blue-500">
+            Each requirement below shows exactly how it was labeled — Compliant (full credit), Partial (half credit),
+            Non-Compliant (no credit), or N/A ({notApplicable} counted in the {total}-requirement total).
+            The per-requirement Score column (0–100) is the assessor&apos;s granular rating and does not change the overall formula.
+          </p>
+        </div>
+
         {/* NIST function tiles */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {functionStats.map(({ fn, fnTotal, fnCompliant, fnPartial, fnNonComp, fnScore }) => {

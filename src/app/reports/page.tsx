@@ -1,4 +1,5 @@
 import Header from "@/components/layout/Header";
+import ReportActions from "@/components/reports/ReportActions";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { enforcePermission } from "@/lib/rbac";
@@ -49,8 +50,11 @@ export default async function ReportsPage() {
 
   return (
     <>
-      <Header title="Reports" subtitle="Executive reporting & gap analysis" />
+      <Header title="Reports" subtitle="Executive reporting, exports & gap analysis" />
       <main className="grc-page space-y-6">
+        {/* Generate reports & exports */}
+        <ReportActions />
+
         {/* Report Cards */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="rounded-xl border bg-gradient-to-br from-blue-600 to-blue-700 p-5 text-white shadow-sm">

@@ -5,19 +5,26 @@ import { enforcePermission } from "@/lib/rbac";
 import { createJiraIssue } from "@/lib/jira";
 import { z } from "zod";
 
-const CreateRemediationSchema = z.object({
-  title: z.string().min(1),
-  description: z.string().min(1),
-  controlId: z.string().min(1),
-  riskId: z.string().optional(),
-  assignedTo: z.string().min(1), // Prisma user ID
-  priority: z.number().int().min(1).max(4).default(2),
-  complexity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-  dueDate: z.string().optional(),
-  jiraEpicKey: z.string().optional(),
-  jiraEpicUrl: z.string().optional(),
-  createJiraIssue: z.boolean().optional().default(false),
-});
+const CreateRemediationSchema = z
+  .object({
+    title: z.string().min(1),
+    description: z.string().min(1),
+    controlId: z.string().optional(),
+    riskId: z.string().optional(),
+    assignedTo: z.string().min(1), // Prisma user ID
+    status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "WONT_FIX"]).optional(),
+    priority: z.number().int().min(1).max(4).default(2),
+    complexity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
+    dueDate: z.string().optional(),
+    jiraIssueKey: z.string().optional(),
+    jiraIssueUrl: z.string().optional(),
+    jiraEpicKey: z.string().optional(),
+    jiraEpicUrl: z.string().optional(),
+    createJiraIssue: z.boolean().optional().default(false),
+  })
+  .refine((d) => d.controlId || d.riskId, {
+    message: "A remediation must be linked to a control or a risk (or both)",
+  });
 
 export async function GET(request: NextRequest) {
   try {
@@ -60,23 +67,29 @@ export async function POST(request: NextRequest) {
     const validated = CreateRemediationSchema.parse(body);
     const { createJiraIssue: shouldCreateJira, ...remediationData } = validated;
 
-    // Verify the control exists
-    const control = await prisma.internalControl.findUnique({
-      where: { id: remediationData.controlId },
-      select: { controlCode: true, title: true },
-    });
-    if (!control) {
-      return NextResponse.json({ error: "Control not found" }, { status: 404 });
+    // Verify the control exists (if linked)
+    let control: { controlCode: string; title: string } | null = null;
+    if (remediationData.controlId) {
+      control = await prisma.internalControl.findUnique({
+        where: { id: remediationData.controlId },
+        select: { controlCode: true, title: true },
+      });
+      if (!control) {
+        return NextResponse.json({ error: "Control not found" }, { status: 404 });
+      }
     }
 
     // Create remediation in DB
     const remediation = await prisma.remediation.create({
       data: {
         ...remediationData,
+        controlId: remediationData.controlId || null,
+        riskId: remediationData.riskId || null,
         dueDate: remediationData.dueDate ? new Date(remediationData.dueDate) : null,
       },
       include: {
         control: { select: { controlCode: true, title: true } },
+        risk: { select: { riskId: true, title: true } },
         assignee: { select: { id: true, name: true, email: true } },
       },
     });
@@ -89,7 +102,7 @@ export async function POST(request: NextRequest) {
           remediationId: remediation.id,
           title: remediation.title,
           description: remediation.description,
-          controlCode: control.controlCode,
+          controlCode: control?.controlCode ?? "UNLINKED",
           priority: remediation.priority,
           dueDate: remediationData.dueDate,
         });

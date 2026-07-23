@@ -18,7 +18,7 @@ type Remediation = {
   jiraIssueUrl: string | null;
   jiraEpicKey: string | null;
   jiraEpicUrl: string | null;
-  control: { controlCode: string; title: string };
+  control: { controlCode: string; title: string } | null;
   risk: { riskId: string; title: string } | null;
   assignee: { name: string | null; email: string };
 };
@@ -64,12 +64,15 @@ export default function RemediationPage() {
     controlId: "",
     riskId: "",
     assignedTo: "",
+    status: "OPEN",
     priority: 2,
     complexity: "",
     dueDate: "",
+    jiraIssueKey: "",
     jiraEpicKey: "",
     createJiraIssue: false,
   });
+  const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -93,21 +96,41 @@ export default function RemediationPage() {
   };
 
   function resetForm() {
-    setForm({ title: "", description: "", controlId: "", riskId: "", assignedTo: "", priority: 2, complexity: "", dueDate: "", jiraEpicKey: "", createJiraIssue: false });
+    setForm({ title: "", description: "", controlId: "", riskId: "", assignedTo: "", status: "OPEN", priority: 2, complexity: "", dueDate: "", jiraIssueKey: "", jiraEpicKey: "", createJiraIssue: false });
     setError("");
+  }
+
+  function handleStatusChange(id: string, newStatus: string) {
+    setUpdatingStatusId(id);
+    fetch(`/api/remediation/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: newStatus }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.data) setItems((prev) => prev.map((i) => (i.id === id ? d.data : i)));
+      })
+      .finally(() => setUpdatingStatusId(null));
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (!form.controlId && !form.riskId) {
+      setError("Link this remediation to a control or a risk (at least one).");
+      return;
+    }
     startTransition(async () => {
       try {
         const payload: any = {
           ...form,
           priority: Number(form.priority),
         };
+        if (!payload.controlId) delete payload.controlId;
         if (!payload.riskId) delete payload.riskId;
         if (!payload.complexity) delete payload.complexity;
+        if (!payload.jiraIssueKey) delete payload.jiraIssueKey;
         if (!payload.jiraEpicKey) delete payload.jiraEpicKey;
         const res = await fetch("/api/remediation", {
           method: "POST",
@@ -192,9 +215,14 @@ export default function RemediationPage() {
                         </td>
                         <td>
                           <div className="space-y-1">
-                            <span className="flex items-center gap-1 rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 text-xs font-mono font-bold text-blue-600 dark:text-blue-400 w-fit">
-                              {item.control.controlCode}
-                            </span>
+                            {item.control && (
+                              <span className="flex items-center gap-1 rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 text-xs font-mono font-bold text-blue-600 dark:text-blue-400 w-fit">
+                                {item.control.controlCode}
+                              </span>
+                            )}
+                            {!item.control && !item.risk && (
+                              <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
+                            )}
                             {item.risk && (
                               <span className="flex items-center gap-1 rounded border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/40 px-2 py-0.5 text-xs font-medium text-orange-700 dark:text-orange-400 w-fit">
                                 <Link2 className="h-2.5 w-2.5" />{item.risk.riskId}
@@ -215,9 +243,25 @@ export default function RemediationPage() {
                           </div>
                         </td>
                         <td>
-                          <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium", statusConf?.color)}>
-                            <StatusIcon className="h-3 w-3" />{statusConf?.label ?? item.status}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap", statusConf?.color)}>
+                              <StatusIcon className="h-3 w-3" />{statusConf?.label ?? item.status}
+                            </span>
+                            {updatingStatusId === item.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />
+                            ) : (
+                              <select
+                                value={item.status}
+                                onChange={(e) => handleStatusChange(item.id, e.target.value)}
+                                title="Change status"
+                                className="w-5 cursor-pointer rounded border-none bg-transparent text-xs text-gray-400 focus:outline-none dark:text-gray-500"
+                              >
+                                {Object.entries(STATUS_CONFIG).map(([value, conf]) => (
+                                  <option key={value} value={value}>{conf.label}</option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
                         </td>
                         <td className="text-sm text-gray-600 dark:text-gray-400">{item.assignee.name ?? item.assignee.email}</td>
                         <td>
@@ -272,23 +316,34 @@ export default function RemediationPage() {
                 <textarea required rows={3} className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Detailed remediation steps, acceptance criteria..." />
               </div>
 
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">Linked Control *</label>
-                <select required className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.controlId} onChange={(e) => setForm((f) => ({ ...f, controlId: e.target.value }))}>
-                  <option value="">Select a control...</option>
-                  {controls.map((c) => <option key={c.id} value={c.id}>{c.controlCode} – {c.title}</option>)}
-                </select>
+              <div className="rounded-xl border dark:border-gray-700 p-4 space-y-3">
+                <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Map to Control and/or Risk <span className="font-normal text-red-500">(at least one required)</span>
+                </p>
+                <div>
+                  <label className="mb-1 block text-xs text-gray-600 dark:text-gray-400">Linked Control</label>
+                  <select className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.controlId} onChange={(e) => setForm((f) => ({ ...f, controlId: e.target.value }))}>
+                    <option value="">No control linked</option>
+                    {controls.map((c) => <option key={c.id} value={c.id}>{c.controlCode} – {c.title}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-gray-600 dark:text-gray-400">Linked Risk</label>
+                  <select className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.riskId} onChange={(e) => setForm((f) => ({ ...f, riskId: e.target.value }))}>
+                    <option value="">No risk linked</option>
+                    {risks.map((r) => <option key={r.id} value={r.id}>{r.riskId} – {r.title}</option>)}
+                  </select>
+                  <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">Link to a control, a risk, or both for full traceability.</p>
+                </div>
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  Linked Risk <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <select className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.riskId} onChange={(e) => setForm((f) => ({ ...f, riskId: e.target.value }))}>
-                  <option value="">None — control only</option>
-                  {risks.map((r) => <option key={r.id} value={r.id}>{r.riskId} – {r.title}</option>)}
+                <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">Status</label>
+                <select className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+                  {Object.entries(STATUS_CONFIG).map(([value, conf]) => (
+                    <option key={value} value={value}>{conf.label}</option>
+                  ))}
                 </select>
-                <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">Link this remediation to a specific risk entry for full traceability.</p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -326,9 +381,15 @@ export default function RemediationPage() {
               {/* Jira section */}
               <div className="rounded-xl border dark:border-gray-700 p-4 space-y-3">
                 <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">Jira Integration</p>
-                <div>
-                  <label className="mb-1 block text-xs text-gray-600 dark:text-gray-400">Epic Key <span className="text-gray-400 font-normal">(optional)</span></label>
-                  <input className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.jiraEpicKey} onChange={(e) => setForm((f) => ({ ...f, jiraEpicKey: e.target.value }))} placeholder="e.g. GRC-EPIC-12" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-xs text-gray-600 dark:text-gray-400">Task Key <span className="text-gray-400 font-normal">(optional)</span></label>
+                    <input className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.jiraIssueKey} onChange={(e) => setForm((f) => ({ ...f, jiraIssueKey: e.target.value }))} placeholder="e.g. GRC-123" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-gray-600 dark:text-gray-400">Epic Key <span className="text-gray-400 font-normal">(optional)</span></label>
+                    <input className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.jiraEpicKey} onChange={(e) => setForm((f) => ({ ...f, jiraEpicKey: e.target.value }))} placeholder="e.g. GRC-EPIC-12" />
+                  </div>
                 </div>
                 {jiraEnabled && (
                   <label className="flex cursor-pointer items-start gap-3 rounded-lg border dark:border-gray-700 p-3 hover:bg-gray-50 dark:hover:bg-gray-800">

@@ -34,6 +34,32 @@ enum ControlStatus {
   NOT_APPLICABLE
 }
 
+enum ControlCriticality {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RiskSource {
+  NIST_CSF_REVIEW
+  PENETRATION_TEST
+  VULNERABILITY_SCAN
+  SELF_IDENTIFIED
+  INTERNAL_AUDIT
+  EXTERNAL_AUDIT
+  THIRD_PARTY
+  INCIDENT
+  OTHER
+}
+
+enum ReviewCadence {
+  MONTHLY
+  QUARTERLY
+  SEMI_ANNUAL
+  ANNUAL
+}
+
 enum ComplianceStatus {
   COMPLIANT
   PARTIAL
@@ -146,14 +172,17 @@ model FrameworkRequirement {
 // ─── Internal Controls (the "map once" source of truth) ───────
 
 model InternalControl {
-  id          String        @id @default(cuid())
-  controlCode String        @unique // e.g. "IC-001"
-  title       String
-  description String        @db.Text
-  status      ControlStatus @default(NOT_STARTED)
-  owner       String?       // person/team responsible
-  category    String?       // e.g. "Identity & Access", "Network Security"
-  tags        String[]      // free-form tags
+  id               String             @id @default(cuid())
+  controlCode      String             @unique // e.g. "IC-001"
+  title            String
+  description      String             @db.Text
+  status           ControlStatus      @default(NOT_STARTED)
+  criticality      ControlCriticality @default(MEDIUM)
+  maturityLevel    Int                @default(0) // 0-5 CMMI-style maturity
+  evidenceExamples String?            @db.Text    // suggested evidence artifacts
+  owner            String?            // person/team responsible
+  category         String?            // e.g. "Identity & Access", "Network Security"
+  tags             String[]           // free-form tags
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
@@ -196,8 +225,16 @@ model Risk {
   residualScore    Int            // after controls applied
   treatment        RiskTreatment
   treatmentDetails String?        @db.Text
+  source           RiskSource     @default(SELF_IDENTIFIED)
+  riskLead         String?        // person responsible for reporting/remediating
   reviewDate       DateTime?
   isOpen           Boolean        @default(true)
+  // Risk exception tracking
+  isException            Boolean        @default(false)
+  exceptionJustification String?        @db.Text
+  exceptionApprovedBy    String?
+  exceptionReviewCadence ReviewCadence?
+  exceptionNextReview    DateTime?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
@@ -246,6 +283,15 @@ model AssessmentResult {
 
 // ─── Evidence Locker ──────────────────────────────────────────
 
+model EvidenceFolder {
+  id          String     @id @default(cuid())
+  name        String     @unique // e.g. "2026 NIST CSF Review", "Pen Test 2025"
+  description String?
+  createdAt   DateTime   @default(now())
+
+  evidence Evidence[]
+}
+
 model Evidence {
   id                String       @id @default(cuid())
   title             String
@@ -257,6 +303,8 @@ model Evidence {
   uploadedBy        String       // userId
   controlId         String?
   riskId            String?
+  remediationId     String?
+  folderId          String?
   assessmentResultId String?
   collectedAt       DateTime     @default(now())
   expiresAt         DateTime?    // for evidence freshness tracking
@@ -267,10 +315,14 @@ model Evidence {
   uploader          User              @relation(fields: [uploadedBy], references: [id])
   control           InternalControl?  @relation(fields: [controlId], references: [id])
   risk              Risk?             @relation(fields: [riskId], references: [id])
+  remediation       Remediation?      @relation(fields: [remediationId], references: [id])
+  folder            EvidenceFolder?   @relation(fields: [folderId], references: [id])
   assessmentResult  AssessmentResult? @relation(fields: [assessmentResultId], references: [id])
 
   @@index([controlId])
   @@index([riskId])
+  @@index([remediationId])
+  @@index([folderId])
 }
 
 // ─── Remediations ─────────────────────────────────────────────
@@ -279,7 +331,7 @@ model Remediation {
   id              String                  @id @default(cuid())
   title           String
   description     String                  @db.Text
-  controlId       String
+  controlId       String?                 // optional: link to a control (control OR risk required)
   riskId          String?                 // optional: link to a specific Risk
   assignedTo      String                  // userId
   status          RemediationStatus       @default(OPEN)
@@ -296,9 +348,10 @@ model Remediation {
   createdAt       DateTime                @default(now())
   updatedAt       DateTime                @updatedAt
 
-  control         InternalControl         @relation(fields: [controlId], references: [id])
+  control         InternalControl?        @relation(fields: [controlId], references: [id])
   risk            Risk?                   @relation(fields: [riskId], references: [id])
   assignee        User                    @relation(fields: [assignedTo], references: [id])
+  evidence        Evidence[]
 
   @@index([controlId])
   @@index([riskId])

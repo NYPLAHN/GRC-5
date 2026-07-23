@@ -13,6 +13,8 @@ const CreateEvidenceSchema = z.object({
   storageKey: z.string().min(1), // S3 key, GCS path, or local path
   controlId: z.string().optional(),
   riskId: z.string().optional(),
+  remediationId: z.string().optional(),
+  folderId: z.string().optional(),
   assessmentResultId: z.string().optional(),
   expiresAt: z.string().optional(),
   tags: z.array(z.string()).optional(),
@@ -26,13 +28,17 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const controlId = searchParams.get("controlId");
     const riskId = searchParams.get("riskId");
+    const remediationId = searchParams.get("remediationId");
+    const folderId = searchParams.get("folderId");
     const search = searchParams.get("search");
     const page = parseInt(searchParams.get("page") ?? "1");
-    const pageSize = parseInt(searchParams.get("pageSize") ?? "25");
+    const pageSize = parseInt(searchParams.get("pageSize") ?? "100");
 
     const where = {
       ...(controlId ? { controlId } : {}),
       ...(riskId ? { riskId } : {}),
+      ...(remediationId ? { remediationId } : {}),
+      ...(folderId ? (folderId === "UNFILED" ? { folderId: null } : { folderId }) : {}),
       ...(search
         ? {
             OR: [
@@ -49,6 +55,9 @@ export async function GET(request: NextRequest) {
         include: {
           uploader: { select: { id: true, name: true, email: true } },
           control: { select: { controlCode: true, title: true } },
+          risk: { select: { riskId: true, title: true } },
+          remediation: { select: { id: true, title: true } },
+          folder: { select: { id: true, name: true } },
         },
         skip: (page - 1) * pageSize,
         take: pageSize,
@@ -99,6 +108,9 @@ export async function POST(request: NextRequest) {
       include: {
         uploader: { select: { id: true, name: true, email: true } },
         control: { select: { controlCode: true, title: true } },
+        risk: { select: { riskId: true, title: true } },
+        remediation: { select: { id: true, title: true } },
+        folder: { select: { id: true, name: true } },
       },
     });
 
