@@ -19,23 +19,53 @@ type ParsedControl = {
   tags: string[];
 };
 
+/** RFC 4180-compliant CSV line parser — handles quoted fields with commas inside */
+function parseCsvLine(line: string): string[] {
+  const fields: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        // escaped double-quote inside a quoted field
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === ',' && !inQuotes) {
+      fields.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  fields.push(current.trim());
+  return fields;
+}
+
 function parseCsv(csv: string): ParsedControl[] {
-  const lines = csv.trim().split("\n");
-  const headers = lines[0].split(",").map((h) => h.trim());
-  return lines.slice(1).map((line) => {
-    const vals = line.split(",");
-    const row: Record<string, string> = {};
-    headers.forEach((h, i) => { row[h] = vals[i]?.trim() ?? ""; });
-    return {
-      controlCode: row.controlCode ?? "",
-      title: row.title ?? "",
-      description: row.description ?? "",
-      status: row.status || "NOT_STARTED",
-      owner: row.owner ?? "",
-      category: row.category ?? "",
-      tags: row.tags ? row.tags.split(";").map((t) => t.trim()).filter(Boolean) : [],
-    };
-  }).filter((r) => r.controlCode && r.title);
+  // Normalise line endings (Windows \r\n → \n)
+  const lines = csv.trim().replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const headers = parseCsvLine(lines[0]).map((h) => h.trim());
+  return lines.slice(1)
+    .filter((line) => line.trim().length > 0)
+    .map((line) => {
+      const vals = parseCsvLine(line);
+      const row: Record<string, string> = {};
+      headers.forEach((h, i) => { row[h] = vals[i]?.trim() ?? ""; });
+      return {
+        controlCode: row.controlCode ?? "",
+        title: row.title ?? "",
+        description: row.description ?? "",
+        status: row.status || "NOT_STARTED",
+        owner: row.owner ?? "",
+        category: row.category ?? "",
+        tags: row.tags ? row.tags.split(";").map((t) => t.trim()).filter(Boolean) : [],
+      };
+    })
+    .filter((r) => r.controlCode && r.title);
 }
 
 export default function ImportControlsButton({ onImported }: { onImported?: () => void } = {}) {
