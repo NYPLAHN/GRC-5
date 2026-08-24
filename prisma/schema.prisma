@@ -179,6 +179,7 @@ model InternalControl {
   status           ControlStatus      @default(NOT_STARTED)
   criticality      ControlCriticality @default(MEDIUM)
   maturityLevel    Int                @default(0) // 0-5 CMMI-style maturity
+  implementationNotes String?         @db.Text    // how the control is actually implemented
   evidenceExamples String?            @db.Text    // suggested evidence artifacts
   owner            String?            // person/team responsible
   category         String?            // e.g. "Identity & Access", "Network Security"

@@ -10,6 +10,7 @@ const UpdateControlSchema = z.object({
   status: z.enum(["NOT_STARTED", "IN_PROGRESS", "IMPLEMENTED", "NOT_APPLICABLE"]).optional(),
   criticality: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
   maturityLevel: z.number().int().min(0).max(5).optional(),
+  implementationNotes: z.string().optional(),
   evidenceExamples: z.string().optional(),
   owner: z.string().optional(),
   category: z.string().optional(),

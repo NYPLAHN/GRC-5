@@ -34,12 +34,14 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status");
     const controlId = searchParams.get("controlId");
+    const riskId = searchParams.get("riskId");
     const assignedTo = searchParams.get("assignedTo");
 
     const remediations = await prisma.remediation.findMany({
       where: {
         ...(status ? { status: status as any } : {}),
         ...(controlId ? { controlId } : {}),
+        ...(riskId ? { riskId } : {}),
         ...(assignedTo ? { assignedTo } : {}),
       },
       include: {

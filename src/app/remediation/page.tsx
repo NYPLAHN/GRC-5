@@ -25,6 +25,7 @@ type Remediation = {
 
 type Control = { id: string; controlCode: string; title: string };
 type Risk = { id: string; riskId: string; title: string };
+type UserOption = { id: string; name: string | null; email: string };
 
 const STATUS_CONFIG = {
   OPEN: { label: "Open", icon: AlertCircle, color: "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-800" },
@@ -51,6 +52,7 @@ export default function RemediationPage() {
   const [items, setItems] = useState<Remediation[]>([]);
   const [controls, setControls] = useState<Control[]>([]);
   const [risks, setRisks] = useState<Risk[]>([]);
+  const [users, setUsers] = useState<UserOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDrawer, setShowDrawer] = useState(false);
   const [filter, setFilter] = useState<string>("ALL");
@@ -77,12 +79,14 @@ export default function RemediationPage() {
   useEffect(() => {
     Promise.all([
       fetch("/api/remediation").then((r) => r.json()),
-      fetch("/api/controls?pageSize=100").then((r) => r.json()),
+      fetch("/api/controls?pageSize=200").then((r) => r.json()),
       fetch("/api/risks?pageSize=100").then((r) => r.json()),
-    ]).then(([remData, ctrlData, riskData]) => {
+      fetch("/api/users").then((r) => r.json()),
+    ]).then(([remData, ctrlData, riskData, userData]) => {
       setItems(remData.data ?? []);
       setControls(ctrlData.data ?? []);
       setRisks(riskData.data ?? []);
+      setUsers(userData.data ?? []);
     }).finally(() => setLoading(false));
 
     fetch("/api/integrations/jira").then((r) => r.json()).then((d) => setJiraEnabled(d.status === "ok")).catch(() => setJiraEnabled(false));
@@ -374,8 +378,11 @@ export default function RemediationPage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">Assign To (User ID) *</label>
-                <input required className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.assignedTo} onChange={(e) => setForm((f) => ({ ...f, assignedTo: e.target.value }))} placeholder="Paste a User ID from Admin → Users" />
+                <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">Assign To *</label>
+                <select required className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.assignedTo} onChange={(e) => setForm((f) => ({ ...f, assignedTo: e.target.value }))}>
+                  <option value="">Select assignee...</option>
+                  {users.map((u) => <option key={u.id} value={u.id}>{u.name ?? u.email}</option>)}
+                </select>
               </div>
 
               {/* Jira section */}

@@ -4,8 +4,9 @@ import { useState, useEffect, useMemo, useTransition } from "react";
 import Header from "@/components/layout/Header";
 import {
   AlertTriangle, Plus, X, ChevronDown, ChevronUp, Loader2, Sparkles, Pencil,
-  ShieldAlert, Search, FilterX, CalendarClock,
+  ShieldAlert, Search, FilterX, CalendarClock, Wrench, CheckCircle2,
 } from "lucide-react";
+import InfoTip from "@/components/ui/InfoTip";
 import {
   cn, getRiskRating, getRiskBadgeClasses, computeRiskScore, formatDate,
   getRiskSourceClasses, RISK_SOURCE_LABELS, CADENCE_LABELS,
@@ -61,6 +62,14 @@ const TREATMENT_COLORS: Record<string, string> = {
 
 const inputCls =
   "w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+const SCORING_TIPS: Record<string, string> = {
+  likelihood: "How probable the risk scenario is within ~12 months: Rare (1) = very unlikely, Unlikely (2), Possible (3), Likely (4), Almost Certain (5) = expected to occur.",
+  impact: "Severity of consequences if the risk materializes, from Negligible (1) to Critical (5) — consider financial, operational, reputational, and patron-data harm.",
+  velocity: "The speed at which the risk impacts the organization once triggered: Slow = days/weeks of warning, Medium = hours to days, Fast = immediate, no reaction time.",
+  residual: "Remaining risk AFTER controls and treatment are applied. Inherent score = Likelihood × Impact (1–25); lower it to reflect how effective your controls are. Example: inherent 16 with strong MFA + monitoring might leave residual 6.",
+  inherent: "Auto-calculated: Likelihood (1–5) × Impact (1–5) = 1–25, BEFORE any controls. ≥15 Critical, ≥10 High, ≥5 Medium, <5 Low.",
+};
 const filterCls =
   "w-full rounded-md border dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 px-2 py-1 text-[11px] font-normal focus:outline-none focus:ring-1 focus:ring-blue-500";
 
@@ -75,6 +84,160 @@ function RiskScorePill({ score }: { score: number }) {
       {score}
       <span className="font-semibold opacity-80">· {rating}</span>
     </span>
+  );
+}
+
+type UserOption = { id: string; name: string | null; email: string };
+type LinkedRemediation = {
+  id: string;
+  title: string;
+  status: string;
+  priority: number;
+  assignee: { name: string | null; email: string };
+};
+
+const REM_STATUS_LABELS: Record<string, string> = {
+  OPEN: "Open", IN_PROGRESS: "In Progress", RESOLVED: "Resolved", WONT_FIX: "Won't Fix",
+};
+
+/** Linked remediations list + quick-create, shown inside the risk drawer (edit mode). */
+function RiskRemediationSection({ risk }: { risk: RiskRow }) {
+  const [remediations, setRemediations] = useState<LinkedRemediation[]>([]);
+  const [users, setUsers] = useState<UserOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState(`Remediate: ${risk.title}`);
+  const [assignedTo, setAssignedTo] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    Promise.all([
+      fetch(`/api/remediation?riskId=${risk.id}`).then((r) => r.json()),
+      fetch("/api/users").then((r) => r.json()),
+    ]).then(([remData, userData]) => {
+      setRemediations(remData.data ?? []);
+      const u = userData.data ?? [];
+      setUsers(u);
+      if (u.length > 0) setAssignedTo(u[0].id);
+    }).finally(() => setLoading(false));
+  }, [risk.id]);
+
+  function handleCreate() {
+    if (!title.trim() || !assignedTo) return;
+    setError("");
+    startTransition(async () => {
+      try {
+        const rating = getRiskRating(risk.inherentScore);
+        const priority = rating === "CRITICAL" ? 1 : rating === "HIGH" ? 2 : rating === "MEDIUM" ? 3 : 4;
+        const res = await fetch("/api/remediation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: title.trim(),
+            description: risk.treatmentDetails?.trim() || `Remediation for ${risk.riskId}: ${risk.description}`,
+            riskId: risk.id,
+            assignedTo,
+            priority,
+            ...(dueDate ? { dueDate } : {}),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed to create remediation");
+        setRemediations((prev) => [data.data, ...prev]);
+        setShowForm(false);
+        setTitle(`Remediate: ${risk.title}`);
+        setDueDate("");
+      } catch (err: any) {
+        setError(err.message);
+      }
+    });
+  }
+
+  return (
+    <div className="rounded-xl border dark:border-gray-700 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 dark:text-gray-200">
+          <Wrench className="h-4 w-4 text-blue-500" /> Linked Remediations
+          {!loading && <span className="text-xs font-normal text-gray-400">({remediations.length})</span>}
+        </p>
+        {!showForm && (
+          <button
+            type="button"
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-700"
+          >
+            <Plus className="h-3 w-3" /> Create Remediation
+          </button>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="flex items-center gap-2 py-2 text-xs text-gray-400"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</div>
+      ) : remediations.length === 0 && !showForm ? (
+        <p className="text-xs text-gray-400 dark:text-gray-500">No remediations linked to this risk yet.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {remediations.map((rem) => (
+            <div key={rem.id} className="flex items-center justify-between gap-2 rounded-lg border dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-xs font-medium text-gray-800 dark:text-gray-200">{rem.title}</p>
+                <p className="text-[10px] text-gray-400">{rem.assignee?.name ?? rem.assignee?.email}</p>
+              </div>
+              <span className={cn(
+                "flex-shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium whitespace-nowrap",
+                rem.status === "RESOLVED"
+                  ? "bg-green-50 border-green-200 text-green-600 dark:bg-green-950 dark:border-green-800 dark:text-green-400"
+                  : rem.status === "IN_PROGRESS"
+                  ? "bg-blue-50 border-blue-200 text-blue-600 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-400"
+                  : "bg-orange-50 border-orange-200 text-orange-600 dark:bg-orange-950 dark:border-orange-800 dark:text-orange-400"
+              )}>
+                {rem.status === "RESOLVED" && <CheckCircle2 className="mr-0.5 inline h-2.5 w-2.5" />}
+                {REM_STATUS_LABELS[rem.status] ?? rem.status}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showForm && (
+        <div className="space-y-2.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 p-3">
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold text-gray-700 dark:text-gray-300">Title *</label>
+            <input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold text-gray-700 dark:text-gray-300">Assignee *</label>
+              <select className={inputCls} value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
+                {users.map((u) => <option key={u.id} value={u.id}>{u.name ?? u.email}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold text-gray-700 dark:text-gray-300">Due Date</label>
+              <input type="date" className={inputCls} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            </div>
+          </div>
+          <p className="text-[10px] text-gray-500 dark:text-gray-400">
+            Priority is set automatically from this risk&apos;s inherent rating; the description pulls from the treatment plan. Both are editable in the Remediation tracker.
+          </p>
+          {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setShowForm(false)} className="rounded-lg border dark:border-gray-700 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-800">Cancel</button>
+            <button
+              type="button"
+              onClick={handleCreate}
+              disabled={isPending || !title.trim() || !assignedTo}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+              Create & Link
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -160,7 +323,9 @@ function RiskDrawer({ onClose, onSaved, editRisk }: {
 
         <form onSubmit={handleSubmit} className="space-y-5 p-6">
           <div className={cn("rounded-xl border p-4 text-center", getRiskBadgeClasses(inherentRating))}>
-            <p className="text-xs font-medium opacity-70">Computed Inherent Score</p>
+            <p className="flex items-center justify-center gap-1 text-xs font-medium opacity-70">
+              Computed Inherent Score <InfoTip text={SCORING_TIPS.inherent} />
+            </p>
             <p className="text-4xl font-bold">{inherent}</p>
             <p className="text-sm font-semibold">{inherentRating}</p>
             <p className="text-xs opacity-60 mt-1">Likelihood × Impact (auto-calculated)</p>
@@ -207,7 +372,9 @@ function RiskDrawer({ onClose, onSaved, editRisk }: {
               { key: "velocity", label: "Velocity *", opts: VELOCITY_OPTS, labels: {} },
             ].map(({ key, label, opts, labels }) => (
               <div key={key}>
-                <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">{label}</label>
+                <label className="mb-1 flex items-center gap-1 text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  {label} <InfoTip text={SCORING_TIPS[key]} />
+                </label>
                 <select required className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" value={(form as any)[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}>
                   {opts.map((o) => <option key={o} value={o}>{(labels as any)[o] ?? o}</option>)}
                 </select>
@@ -216,7 +383,9 @@ function RiskDrawer({ onClose, onSaved, editRisk }: {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">Residual Score (1–25) * <span className="font-normal text-gray-400">after controls applied</span></label>
+            <label className="mb-1 flex items-center gap-1 text-xs font-semibold text-gray-700 dark:text-gray-300">
+              Residual Score (1–25) * <span className="font-normal text-gray-400">after controls applied</span> <InfoTip text={SCORING_TIPS.residual} />
+            </label>
             <input required type="number" min={1} max={25} className={inputCls} value={form.residualScore} onChange={(e) => setForm((f) => ({ ...f, residualScore: Number(e.target.value) }))} />
           </div>
 
@@ -283,6 +452,8 @@ function RiskDrawer({ onClose, onSaved, editRisk }: {
               </div>
             )}
           </div>
+
+          {isEdit && <RiskRemediationSection risk={editRisk!} />}
 
           {isEdit && (
             <div>
@@ -587,13 +758,13 @@ export default function RisksPage() {
                   <th>Title & Category</th>
                   <th>Source</th>
                   <th>Owner / Lead</th>
-                  <th>L × I</th>
-                  <th>Velocity</th>
+                  <th><span className="flex items-center gap-1">L × I <InfoTip text="Likelihood and Impact ratings, each on a 1–5 scale. Hover the pills for full names; these multiply to give the inherent score." /></span></th>
+                  <th><span className="flex items-center gap-1">Velocity <InfoTip text={SCORING_TIPS.velocity} /></span></th>
                   <th className="cursor-pointer select-none" onClick={() => handleSort("inherentScore")}>
-                    <span className="flex items-center gap-1">Inherent <SortIcon field="inherentScore" /></span>
+                    <span className="flex items-center gap-1">Inherent <InfoTip text={SCORING_TIPS.inherent} /> <SortIcon field="inherentScore" /></span>
                   </th>
                   <th className="cursor-pointer select-none" onClick={() => handleSort("residualScore")}>
-                    <span className="flex items-center gap-1">Residual <SortIcon field="residualScore" /></span>
+                    <span className="flex items-center gap-1">Residual <InfoTip text={SCORING_TIPS.residual} /> <SortIcon field="residualScore" /></span>
                   </th>
                   <th>Treatment</th>
                   <th>Status</th>
@@ -657,7 +828,12 @@ export default function RisksPage() {
                 ) : sorted.map((risk) => {
                   const reviewOverdue = risk.isException && risk.exceptionNextReview && new Date(risk.exceptionNextReview) < new Date();
                   return (
-                    <tr key={risk.id}>
+                    <tr
+                      key={risk.id}
+                      onClick={() => setEditRisk(risk)}
+                      title="Click to open risk details"
+                      className="cursor-pointer"
+                    >
                       <td className="font-mono text-xs font-bold text-gray-500 dark:text-gray-400">{risk.riskId}</td>
                       <td>
                         <p className="font-medium text-gray-900 dark:text-gray-100">{risk.title}</p>
@@ -721,7 +897,7 @@ export default function RisksPage() {
                       </td>
                       <td>
                         <button
-                          onClick={() => setEditRisk(risk)}
+                          onClick={(e) => { e.stopPropagation(); setEditRisk(risk); }}
                           className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-blue-600 dark:hover:text-blue-400"
                         >
                           <Pencil className="h-3.5 w-3.5" />

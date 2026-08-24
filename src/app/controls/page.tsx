@@ -50,12 +50,21 @@ type ControlRow = {
   status: string;
   criticality: string;
   maturityLevel: number;
+  implementationNotes: string | null;
   evidenceExamples: string | null;
   owner: string | null;
   category: string | null;
   tags: string[];
   frameworkMappings: FrameworkMapping[];
   _count: { evidence: number; remediations: number };
+};
+
+type FrameworkWithReqs = {
+  id: string;
+  name: string;
+  slug: string;
+  version: string;
+  requirements: { id: string; controlId: string; category: string; title: string }[];
 };
 
 const STATUS_ICONS = {
@@ -203,10 +212,12 @@ function EvidenceUploadForm({
 
 function EditDrawer({
   control,
+  categories,
   onClose,
   onSaved,
 }: {
   control: ControlRow;
+  categories: string[];
   onClose: () => void;
   onSaved: (updated: ControlRow) => void;
 }) {
@@ -216,34 +227,59 @@ function EditDrawer({
     status: control.status,
     criticality: control.criticality ?? "MEDIUM",
     maturityLevel: control.maturityLevel ?? 0,
+    implementationNotes: control.implementationNotes ?? "",
     evidenceExamples: control.evidenceExamples ?? "",
     owner: control.owner ?? "",
     category: control.category ?? "",
-    tags: control.tags.join("; "),
   });
+  const [tags, setTags] = useState<string[]>(control.tags);
+  const [tagInput, setTagInput] = useState("");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
 
-  const fwMap = new Map<string, { slug: string; ids: string[] }>();
-  control.frameworkMappings.forEach((m) => {
-    const slug = m.requirement.framework.slug;
-    if (!fwMap.has(slug)) fwMap.set(slug, { slug, ids: [] });
-    fwMap.get(slug)!.ids.push(m.requirement.controlId);
-  });
+  // Framework mapping editor state
+  const [allFrameworks, setAllFrameworks] = useState<FrameworkWithReqs[]>([]);
+  const [selectedReqIds, setSelectedReqIds] = useState<string[]>(
+    control.frameworkMappings.map((m) => m.requirementId)
+  );
+  const [openFramework, setOpenFramework] = useState<string | null>(null);
+  const [reqSearch, setReqSearch] = useState("");
+  const [loadingFrameworks, setLoadingFrameworks] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/frameworks?requirements=true")
+      .then((r) => r.json())
+      .then((d) => setAllFrameworks(d.data ?? []))
+      .finally(() => setLoadingFrameworks(false));
+  }, []);
+
+  function addTag(raw: string) {
+    const t = raw.trim().replace(/[;,]$/, "").trim();
+    if (t && !tags.includes(t)) setTags((prev) => [...prev, t]);
+    setTagInput("");
+  }
+
+  function toggleReq(reqId: string) {
+    setSelectedReqIds((prev) =>
+      prev.includes(reqId) ? prev.filter((id) => id !== reqId) : [...prev, reqId]
+    );
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     startTransition(async () => {
       try {
-        const tagsArray = form.tags.split(";").map((t) => t.trim()).filter(Boolean);
+        const pendingTag = tagInput.trim();
+        const finalTags = pendingTag && !tags.includes(pendingTag) ? [...tags, pendingTag] : tags;
         const res = await fetch(`/api/controls/${control.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...form,
             maturityLevel: Number(form.maturityLevel),
-            tags: tagsArray,
+            tags: finalTags,
+            frameworkRequirementIds: selectedReqIds,
           }),
         });
         const data = await res.json();
@@ -263,7 +299,7 @@ function EditDrawer({
         <div className="sticky top-0 z-10 flex items-center justify-between border-b dark:border-gray-800 bg-white dark:bg-gray-900 px-6 py-4">
           <div>
             <p className="text-xs font-mono font-bold text-gray-400 dark:text-gray-500">{control.controlCode}</p>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Edit Control</h2>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Control Details</h2>
           </div>
           <button onClick={onClose} className="rounded-lg p-1 hover:bg-gray-100 dark:hover:bg-gray-800">
             <X className="h-5 w-5 dark:text-gray-400" />
@@ -305,6 +341,20 @@ function EditDrawer({
                 );
               })}
             </div>
+          </div>
+
+          {/* Implementation details */}
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">
+              Implementation Details <span className="font-normal text-gray-400">how this control is actually implemented</span>
+            </label>
+            <textarea
+              rows={4}
+              className={cn(inputCls, "resize-y")}
+              value={form.implementationNotes}
+              onChange={(e) => setForm((f) => ({ ...f, implementationNotes: e.target.value }))}
+              placeholder="e.g. Okta MFA enforced for all staff via sign-on policy; hardware keys required for admins; exceptions tracked in..."
+            />
           </div>
 
           {/* Criticality & Maturity */}
@@ -356,7 +406,16 @@ function EditDrawer({
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">Category</label>
-              <input className={inputCls} value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="Access Control, Network..." />
+              <input
+                className={inputCls}
+                value={form.category}
+                onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+                placeholder="Access Control, Network..."
+                list="control-categories"
+              />
+              <datalist id="control-categories">
+                {categories.map((c) => <option key={c} value={c} />)}
+              </datalist>
             </div>
           </div>
 
@@ -374,30 +433,131 @@ function EditDrawer({
             />
           </div>
 
-          {/* Tags */}
+          {/* Tags — chip editor */}
           <div>
             <label className="mb-1 block text-xs font-semibold text-gray-700 dark:text-gray-300">
-              Tags <span className="font-normal text-gray-400">semicolon-separated</span>
+              Tags <span className="font-normal text-gray-400">press Enter to add · click × to remove</span>
             </label>
-            <input className={inputCls} value={form.tags} onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))} placeholder="MFA; Encryption; Zero Trust" />
+            <div className="flex flex-wrap items-center gap-1.5 rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1.5 focus-within:ring-2 focus-within:ring-blue-500">
+              {tags.map((tag) => (
+                <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                  <Tag className="h-2.5 w-2.5" />
+                  {tag}
+                  <button
+                    type="button"
+                    onClick={() => setTags((prev) => prev.filter((t) => t !== tag))}
+                    className="ml-0.5 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800"
+                    aria-label={`Remove ${tag}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+              <input
+                className="min-w-[120px] flex-1 border-none bg-transparent px-1 py-1 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === "," || e.key === ";") {
+                    e.preventDefault();
+                    addTag(tagInput);
+                  } else if (e.key === "Backspace" && !tagInput && tags.length > 0) {
+                    setTags((prev) => prev.slice(0, -1));
+                  }
+                }}
+                onBlur={() => tagInput.trim() && addTag(tagInput)}
+                placeholder={tags.length === 0 ? "MFA, Encryption, Zero Trust..." : "Add tag..."}
+              />
+            </div>
           </div>
 
-          {/* Framework mappings — read-only */}
-          {fwMap.size > 0 && (
-            <div>
-              <label className="mb-2 block text-xs font-semibold text-gray-700 dark:text-gray-300">Framework Mappings (read-only)</label>
-              <div className="rounded-lg border dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 space-y-2">
-                {Array.from(fwMap.entries()).map(([slug, info]) => (
-                  <div key={slug} className="flex items-center gap-2 flex-wrap">
-                    <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-semibold", FRAMEWORK_COLORS[slug] ?? "bg-gray-100 text-gray-600")}>
-                      {FRAMEWORK_SHORT[slug] ?? slug}
-                    </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">{info.ids.join(", ")}</span>
-                  </div>
-                ))}
+          {/* Framework mappings — editable */}
+          <div>
+            <label className="mb-2 block text-xs font-semibold text-gray-700 dark:text-gray-300">
+              Framework Mappings <span className="font-normal text-gray-400">{selectedReqIds.length} requirement{selectedReqIds.length !== 1 ? "s" : ""} mapped</span>
+            </label>
+            {loadingFrameworks ? (
+              <div className="flex items-center gap-2 rounded-lg border dark:border-gray-700 p-3 text-xs text-gray-400">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading frameworks...
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="space-y-2">
+                {allFrameworks.map((fw) => {
+                  const fwSelected = fw.requirements.filter((r) => selectedReqIds.includes(r.id));
+                  const isOpen = openFramework === fw.slug;
+                  const visibleReqs = isOpen
+                    ? fw.requirements.filter((r) => {
+                        if (!reqSearch) return true;
+                        const q = reqSearch.toLowerCase();
+                        return r.controlId.toLowerCase().includes(q) || r.title.toLowerCase().includes(q) || r.category.toLowerCase().includes(q);
+                      })
+                    : [];
+                  return (
+                    <div key={fw.slug} className="rounded-lg border dark:border-gray-700 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => { setOpenFramework(isOpen ? null : fw.slug); setReqSearch(""); }}
+                        className="flex w-full items-center justify-between bg-gray-50 dark:bg-gray-800/60 px-3 py-2.5 text-left hover:bg-gray-100 dark:hover:bg-gray-800"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-semibold", FRAMEWORK_COLORS[fw.slug] ?? "bg-gray-100 text-gray-600")}>
+                            {FRAMEWORK_SHORT[fw.slug] ?? fw.slug}
+                          </span>
+                          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{fw.name} v{fw.version}</span>
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <span className={cn("text-[11px] font-semibold", fwSelected.length > 0 ? "text-blue-600 dark:text-blue-400" : "text-gray-400")}>
+                            {fwSelected.length} mapped
+                          </span>
+                          {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-gray-400" /> : <ChevronRight className="h-3.5 w-3.5 text-gray-400" />}
+                        </span>
+                      </button>
+                      {!isOpen && fwSelected.length > 0 && (
+                        <div className="flex flex-wrap gap-1 px-3 py-2">
+                          {fwSelected.slice(0, 8).map((r) => (
+                            <span key={r.id} className="rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 font-mono text-[10px] text-gray-600 dark:text-gray-400">{r.controlId}</span>
+                          ))}
+                          {fwSelected.length > 8 && <span className="text-[10px] text-gray-400">+{fwSelected.length - 8} more</span>}
+                        </div>
+                      )}
+                      {isOpen && (
+                        <div className="p-2 space-y-2">
+                          <div className="relative">
+                            <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-400" />
+                            <input
+                              className={cn(filterCls, "pl-6 py-1.5")}
+                              placeholder={`Search ${fw.requirements.length} requirements...`}
+                              value={reqSearch}
+                              onChange={(e) => setReqSearch(e.target.value)}
+                            />
+                          </div>
+                          <div className="max-h-48 space-y-0.5 overflow-y-auto">
+                            {visibleReqs.map((r) => (
+                              <label key={r.id} className="flex cursor-pointer items-start gap-2 rounded px-2 py-1 hover:bg-gray-50 dark:hover:bg-gray-800">
+                                <input
+                                  type="checkbox"
+                                  className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300 text-blue-600"
+                                  checked={selectedReqIds.includes(r.id)}
+                                  onChange={() => toggleReq(r.id)}
+                                />
+                                <span className="min-w-0">
+                                  <span className="font-mono text-[11px] font-bold text-gray-700 dark:text-gray-300">{r.controlId}</span>
+                                  <span className="ml-1.5 text-[11px] text-gray-500 dark:text-gray-400">{r.title}</span>
+                                </span>
+                              </label>
+                            ))}
+                            {visibleReqs.length === 0 && (
+                              <p className="px-2 py-3 text-center text-[11px] text-gray-400">No requirements match.</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           {error && (
             <p className="rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 px-3 py-2 text-sm text-red-600 dark:text-red-400">
@@ -667,10 +827,17 @@ export default function ControlsPage() {
                       <Fragment key={control.id}>
                         <tr
                           className={cn("hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer", isExpanded && "bg-blue-50/40 dark:bg-blue-950/20")}
-                          onClick={() => setExpandedId(isExpanded ? null : control.id)}
+                          onClick={() => setEditControl(control)}
+                          title="Click to open control details"
                         >
                           <td className="pl-3">
-                            {isExpanded ? <ChevronDown className="h-4 w-4 text-blue-500" /> : <ChevronRight className="h-4 w-4 text-gray-300 dark:text-gray-600" />}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setExpandedId(isExpanded ? null : control.id); }}
+                              title={isExpanded ? "Collapse" : "Expand description & evidence"}
+                              className="rounded p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700"
+                            >
+                              {isExpanded ? <ChevronDown className="h-4 w-4 text-blue-500" /> : <ChevronRight className="h-4 w-4 text-gray-400 dark:text-gray-500" />}
+                            </button>
                           </td>
                           <td>
                             <div>
@@ -745,10 +912,16 @@ export default function ControlsPage() {
                             <td></td>
                             <td colSpan={9} className="pb-4 pr-6">
                               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                                {/* Description */}
+                                {/* Description + implementation */}
                                 <div className="rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
                                   <p className="mb-1.5 text-xs font-semibold text-gray-700 dark:text-gray-300">Description</p>
                                   <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-line">{control.description}</p>
+                                  <p className="mb-1.5 mt-3 text-xs font-semibold text-gray-700 dark:text-gray-300">Implementation Details</p>
+                                  {control.implementationNotes ? (
+                                    <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-line">{control.implementationNotes}</p>
+                                  ) : (
+                                    <p className="text-sm italic text-gray-400 dark:text-gray-500">Not documented yet — click the row to add how this control is implemented.</p>
+                                  )}
                                 </div>
 
                                 {/* Evidence guidance + upload */}
@@ -801,7 +974,7 @@ export default function ControlsPage() {
       </main>
 
       {editControl && (
-        <EditDrawer control={editControl} onClose={() => setEditControl(null)} onSaved={handleSaved} />
+        <EditDrawer control={editControl} categories={categories} onClose={() => setEditControl(null)} onSaved={handleSaved} />
       )}
     </>
   );
