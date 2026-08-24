@@ -593,6 +593,7 @@ function GenerateRisksModal({ onClose, onGenerated }: {
 export default function RisksPage() {
   const [risks, setRisks] = useState<RiskRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [showDrawer, setShowDrawer] = useState(false);
   const [editRisk, setEditRisk] = useState<RiskRow | null>(null);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
@@ -612,8 +613,12 @@ export default function RisksPage() {
 
   useEffect(() => {
     fetch("/api/risks")
-      .then((r) => r.json())
-      .then((d) => setRisks(d.data ?? []))
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error ?? `Failed to load risks (HTTP ${r.status})`);
+        setRisks(d.data ?? []);
+      })
+      .catch((e) => setLoadError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
@@ -676,6 +681,13 @@ export default function RisksPage() {
     <>
       <Header title="Risk Register" subtitle="Identify, score, and treat organizational risks" />
       <main className="grc-page space-y-6">
+        {loadError && (
+          <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-5 py-4 text-sm text-red-700 dark:text-red-400">
+            <strong>Couldn&apos;t load risks:</strong> {loadError}
+            <button onClick={() => window.location.reload()} className="ml-3 rounded-lg border border-red-300 dark:border-red-700 px-2.5 py-1 text-xs font-medium hover:bg-red-100 dark:hover:bg-red-900">Retry</button>
+          </div>
+        )}
+
         {/* Clickable rating cards + exceptions */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           {(["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const).map((rating) => {

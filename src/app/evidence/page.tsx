@@ -73,6 +73,8 @@ export default function EvidencePage() {
     remediationId: "", folderId: "", tags: "", expiresAt: "",
   });
 
+  const [loadError, setLoadError] = useState("");
+
   useEffect(() => {
     Promise.all([
       fetch("/api/evidence").then((r) => r.json()),
@@ -81,12 +83,14 @@ export default function EvidencePage() {
       fetch("/api/remediation").then((r) => r.json()),
       fetch("/api/evidence/folders").then((r) => r.json()),
     ]).then(([evData, ctrlData, riskData, remData, folderData]) => {
+      const firstError = [evData, ctrlData, riskData, remData, folderData].find((d) => d?.error);
+      if (firstError) setLoadError(firstError.error);
       setEvidence(evData.data ?? []);
       setControls(ctrlData.data ?? []);
       setRisks(riskData.data ?? []);
       setRemediations(remData.data ?? []);
       setFolders(folderData.data ?? []);
-    }).finally(() => setLoading(false));
+    }).catch((e) => setLoadError(e.message)).finally(() => setLoading(false));
   }, []);
 
   const filtered = evidence.filter((e) => {
@@ -171,6 +175,12 @@ export default function EvidencePage() {
     <>
       <Header title="Evidence Locker" subtitle="Store, organize, and map compliance artifacts" />
       <main className="grc-page space-y-6">
+        {loadError && (
+          <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-5 py-4 text-sm text-red-700 dark:text-red-400">
+            <strong>Couldn&apos;t load data:</strong> {loadError}
+            <button onClick={() => window.location.reload()} className="ml-3 rounded-lg border border-red-300 dark:border-red-700 px-2.5 py-1 text-xs font-medium hover:bg-red-100 dark:hover:bg-red-900">Retry</button>
+          </div>
+        )}
         {(expiringCount > 0 || expiredCount > 0 || unmappedCount > 0) && (
           <div className="flex flex-wrap gap-3">
             {expiredCount > 0 && (

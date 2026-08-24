@@ -54,6 +54,7 @@ export default function RemediationPage() {
   const [risks, setRisks] = useState<Risk[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [showDrawer, setShowDrawer] = useState(false);
   const [filter, setFilter] = useState<string>("ALL");
   const [isPending, startTransition] = useTransition();
@@ -83,11 +84,13 @@ export default function RemediationPage() {
       fetch("/api/risks?pageSize=100").then((r) => r.json()),
       fetch("/api/users").then((r) => r.json()),
     ]).then(([remData, ctrlData, riskData, userData]) => {
+      const firstError = [remData, ctrlData, riskData, userData].find((d) => d?.error);
+      if (firstError) setLoadError(firstError.error);
       setItems(remData.data ?? []);
       setControls(ctrlData.data ?? []);
       setRisks(riskData.data ?? []);
       setUsers(userData.data ?? []);
-    }).finally(() => setLoading(false));
+    }).catch((e) => setLoadError(e.message)).finally(() => setLoading(false));
 
     fetch("/api/integrations/jira").then((r) => r.json()).then((d) => setJiraEnabled(d.status === "ok")).catch(() => setJiraEnabled(false));
   }, []);
@@ -154,6 +157,12 @@ export default function RemediationPage() {
     <>
       <Header title="Remediation Tracker" subtitle="Track and resolve compliance gaps — synced with Jira" />
       <main className="grc-page space-y-6">
+        {loadError && (
+          <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-5 py-4 text-sm text-red-700 dark:text-red-400">
+            <strong>Couldn&apos;t load data:</strong> {loadError}
+            <button onClick={() => window.location.reload()} className="ml-3 rounded-lg border border-red-300 dark:border-red-700 px-2.5 py-1 text-xs font-medium hover:bg-red-100 dark:hover:bg-red-900">Retry</button>
+          </div>
+        )}
         {jiraEnabled && (
           <div className="flex items-center gap-3 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-5 py-3">
             <div className="flex h-6 w-6 items-center justify-center rounded bg-blue-600">

@@ -585,6 +585,7 @@ function EditDrawer({
 export default function ControlsPage() {
   const [controls, setControls] = useState<ControlRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [editControl, setEditControl] = useState<ControlRow | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [uploadingFor, setUploadingFor] = useState<string | null>(null);
@@ -599,8 +600,12 @@ export default function ControlsPage() {
 
   useEffect(() => {
     fetch("/api/controls?pageSize=200")
-      .then((r) => r.json())
-      .then((d) => setControls(d.data ?? []))
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error ?? `Failed to load controls (HTTP ${r.status})`);
+        setControls(d.data ?? []);
+      })
+      .catch((e) => setLoadError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
@@ -671,6 +676,13 @@ export default function ControlsPage() {
     <>
       <Header title="Controls Library" subtitle="Map once, comply to many frameworks" />
       <main className="grc-page space-y-6">
+        {loadError && (
+          <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-5 py-4 text-sm text-red-700 dark:text-red-400">
+            <strong>Couldn&apos;t load controls:</strong> {loadError}
+            <button onClick={() => window.location.reload()} className="ml-3 rounded-lg border border-red-300 dark:border-red-700 px-2.5 py-1 text-xs font-medium hover:bg-red-100 dark:hover:bg-red-900">Retry</button>
+          </div>
+        )}
+
         {/* Status summary — clickable filters */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {(["IMPLEMENTED", "IN_PROGRESS", "NOT_STARTED", "NOT_APPLICABLE"] as const).map((status) => {
