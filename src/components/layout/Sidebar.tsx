@@ -11,6 +11,7 @@ import {
   FolderLock,
   Wrench,
   BarChart3,
+  CalendarDays,
   Users,
   Settings,
   ChevronRight,
@@ -37,6 +38,7 @@ const navItems = [
     items: [
       { href: "/evidence", label: "Evidence Locker", icon: FolderLock },
       { href: "/remediation", label: "Remediation", icon: Wrench },
+      { href: "/remediation/timeline", label: "Timeline", icon: CalendarDays },
     ],
   },
   {
@@ -56,6 +58,13 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+
+  // Longest matching href wins so /remediation/timeline doesn't
+  // also highlight /remediation.
+  const allHrefs = navItems.flatMap((s) => s.items.map((i) => i.href));
+  const bestMatch = allHrefs
+    .filter((h) => pathname === h || pathname.startsWith(h + "/"))
+    .sort((a, b) => b.length - a.length)[0];
 
   return (
     <aside className="grc-sidebar">
@@ -79,9 +88,7 @@ export default function Sidebar() {
             </p>
             {section.items.map((item) => {
               const Icon = item.icon;
-              const isActive =
-                pathname === item.href ||
-                (item.href !== "/dashboard" && pathname.startsWith(item.href));
+              const isActive = item.href === bestMatch;
               return (
                 <Link
                   key={item.href}

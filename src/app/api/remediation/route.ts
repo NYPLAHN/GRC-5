@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
       },
       include: {
         control: { select: { controlCode: true, title: true } },
-        risk: { select: { riskId: true, title: true } },
+        risk: { select: { riskId: true, title: true, inherentScore: true } },
         assignee: { select: { id: true, name: true, email: true } },
       },
       orderBy: [{ priority: "asc" }, { createdAt: "desc" }],

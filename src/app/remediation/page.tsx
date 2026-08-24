@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useTransition } from "react";
+import Link from "next/link";
 import Header from "@/components/layout/Header";
-import { Wrench, Plus, X, Loader2, ExternalLink, CheckCircle2, Clock, AlertCircle, XCircle, Link2 } from "lucide-react";
+import { Wrench, Plus, X, Loader2, ExternalLink, CheckCircle2, Clock, AlertCircle, XCircle, Link2, CalendarDays } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
 
 type Remediation = {
@@ -196,9 +197,14 @@ export default function RemediationPage() {
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {filter === "ALL" ? `All Remediations (${items.length})` : `${STATUS_CONFIG[filter as keyof typeof STATUS_CONFIG]?.label} (${filtered.length})`}
             </h2>
-            <button onClick={() => { resetForm(); setShowDrawer(true); }} className="flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
-              <Plus className="h-3.5 w-3.5" /> New Remediation
-            </button>
+            <div className="flex gap-2">
+              <Link href="/remediation/timeline" className="flex items-center gap-2 rounded-lg border border-blue-300 dark:border-blue-700 bg-white dark:bg-gray-900 px-3 py-2 text-xs font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40">
+                <CalendarDays className="h-3.5 w-3.5" /> Timeline View
+              </Link>
+              <button onClick={() => { resetForm(); setShowDrawer(true); }} className="flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
+                <Plus className="h-3.5 w-3.5" /> New Remediation
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
