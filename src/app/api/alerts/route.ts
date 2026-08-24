@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/auth";
 
 export type AlertItem = {
   id: string;
-  type: "OVERDUE_REMEDIATION" | "EXPIRED_EVIDENCE" | "EXPIRING_EVIDENCE" | "EXCEPTION_REVIEW" | "CRITICAL_RISK" | "POLICY_REVIEW";
+  type: "OVERDUE_REMEDIATION" | "EXPIRED_EVIDENCE" | "EXPIRING_EVIDENCE" | "EXCEPTION_REVIEW" | "CRITICAL_RISK" | "POLICY_REVIEW" | "VENDOR_REVIEW";
   title: string;
   detail: string;
   href: string;
@@ -21,7 +21,7 @@ export async function GET() {
     const now = new Date();
     const in30days = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-    const [overdueRems, expiredEvidence, expiringEvidence, overdueExceptions, criticalRisks, overduePolicies] = await Promise.all([
+    const [overdueRems, expiredEvidence, expiringEvidence, overdueExceptions, criticalRisks, overduePolicies, overdueVendors] = await Promise.all([
       prisma.remediation.findMany({
         where: { dueDate: { lt: now }, status: { in: ["OPEN", "IN_PROGRESS"] } },
         select: { id: true, title: true, dueDate: true },
@@ -57,6 +57,12 @@ export async function GET() {
         orderBy: { nextReviewDate: "asc" },
         take: 10,
       }).catch(() => [] as { id: string; policyCode: string; name: string; nextReviewDate: Date | null }[]),
+      prisma.vendor.findMany({
+        where: { status: { not: "OFFBOARDED" }, nextReviewDate: { lt: now } },
+        select: { id: true, vendorCode: true, name: true, nextReviewDate: true },
+        orderBy: { nextReviewDate: "asc" },
+        take: 10,
+      }).catch(() => [] as { id: string; vendorCode: string; name: string; nextReviewDate: Date | null }[]),
     ]);
 
     const fmt = (d: Date | null) => (d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "");
@@ -68,6 +74,13 @@ export async function GET() {
         title: r.title,
         detail: `Remediation overdue — was due ${fmt(r.dueDate)}`,
         href: "/remediation",
+      })),
+      ...overdueVendors.map((v) => ({
+        id: `ven-${v.id}`,
+        type: "VENDOR_REVIEW" as const,
+        title: `${v.vendorCode} · ${v.name}`,
+        detail: `Vendor review overdue — was due ${fmt(v.nextReviewDate)}`,
+        href: "/vendors",
       })),
       ...overduePolicies.map((p) => ({
         id: `pol-${p.id}`,

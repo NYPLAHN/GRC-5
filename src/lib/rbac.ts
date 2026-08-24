@@ -24,6 +24,8 @@ type Action =
   | "remediation:write"
   | "policies:read"
   | "policies:write"
+  | "vendors:read"
+  | "vendors:write"
   | "reports:read"
   | "admin:users"
   | "admin:settings"
@@ -37,6 +39,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Action[]> = {
     "evidence:read", "evidence:write",
     "remediation:read", "remediation:write",
     "policies:read", "policies:write",
+    "vendors:read", "vendors:write",
     "reports:read",
     "admin:users", "admin:settings",
     "integrations:jira",
@@ -48,6 +51,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Action[]> = {
     "evidence:read", "evidence:write",
     "remediation:read", "remediation:write",
     "policies:read", "policies:write",
+    "vendors:read", "vendors:write",
     "reports:read",
   ],
   VIEWER: [
@@ -57,6 +61,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Action[]> = {
     "evidence:read",
     "remediation:read",
     "policies:read",
+    "vendors:read",
     "reports:read",
   ],
 };

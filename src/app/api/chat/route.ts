@@ -17,7 +17,7 @@ const ChatSchema = z.object({
 
 /** Compact snapshot of the GRC program, injected as model context. */
 async function buildContext(): Promise<string> {
-  const [controls, risks, remediations, policies, latestAssessment] = await Promise.all([
+  const [controls, risks, remediations, policies, vendors, latestAssessment] = await Promise.all([
     prisma.internalControl.findMany({
       select: {
         controlCode: true, title: true, status: true, criticality: true,
@@ -55,6 +55,16 @@ async function buildContext(): Promise<string> {
       orderBy: { policyCode: "asc" },
       take: 100,
     }).catch(() => []),
+    prisma.vendor.findMany({
+      select: {
+        vendorCode: true, name: true, applicationOwner: true, businessUnit: true,
+        criticality: true, status: true, hosting: true, ssoEnabled: true, mfaEnforced: true,
+        userCount: true, dataProcessed: true, attestationType: true, cyberInsurance: true,
+        riskScore: true, vraStatus: true, nextReviewDate: true,
+      },
+      orderBy: { vendorCode: "asc" },
+      take: 200,
+    }).catch(() => []),
     prisma.assessment.findFirst({
       orderBy: { createdAt: "desc" },
       include: {
@@ -90,13 +100,15 @@ async function buildContext(): Promise<string> {
       risk: r.risk?.riskId ?? null,
     })),
     policies,
+    vendors,
     latestAssessment: assessmentSummary,
   });
 }
 
 const SYSTEM_PROMPT = `You are the built-in assistant for NYPL's internal GRC (governance, risk & compliance) platform. You answer questions strictly from the JSON program snapshot provided below. Rules:
 - Answer only from the data. If the data doesn't contain the answer, say so plainly — never invent controls, risks, scores, or dates.
-- Reference records by their IDs (IC-001, RISK-004, POL-002) so users can find them.
+- Reference records by their IDs (IC-001, RISK-004, POL-002, VEN-003) so users can find them.
+- Vendor risk scores are 0–100 (higher = riskier; ≥70 Critical, ≥50 High, ≥30 Medium).
 - Scoring conventions: risk score = likelihood × impact (1–25; ≥15 Critical, ≥10 High, ≥5 Medium, <5 Low). Compliance score = (compliant + 0.5×partial) ÷ total requirements. Control maturity is 0–5 (CMMI-style).
 - Be concise and direct. Use short bullet lists only when listing multiple records.
 - You cannot modify data; if asked to change something, point the user to the right page (Controls Library, Risk Register, Remediation, Policy Register, Evidence Locker, Assessments, Reports).

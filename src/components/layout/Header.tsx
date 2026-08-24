@@ -3,7 +3,7 @@
 import { UserButton } from "@clerk/nextjs";
 import {
   Bell, Search, Sun, Moon, X, Loader2, ShieldCheck, AlertTriangle, Wrench,
-  FolderLock, CalendarClock, ScrollText,
+  FolderLock, CalendarClock, ScrollText, Building2,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
@@ -43,9 +43,10 @@ type SearchResults = {
   remediations: { id: string; title: string; status: string }[];
   evidence: { id: string; title: string; fileName: string; fileType: string }[];
   policies?: { id: string; policyCode: string; name: string; status: string }[];
+  vendors?: { id: string; vendorCode: string; name: string; riskScore: number | null }[];
 };
 
-const EMPTY_RESULTS: SearchResults = { controls: [], risks: [], remediations: [], evidence: [], policies: [] };
+const EMPTY_RESULTS: SearchResults = { controls: [], risks: [], remediations: [], evidence: [], policies: [], vendors: [] };
 
 function GlobalSearch() {
   const [open, setOpen] = useState(false);
@@ -107,7 +108,7 @@ function GlobalSearch() {
     router.push(href);
   }
 
-  const total = results.controls.length + results.risks.length + results.remediations.length + results.evidence.length + (results.policies?.length ?? 0);
+  const total = results.controls.length + results.risks.length + results.remediations.length + results.evidence.length + (results.policies?.length ?? 0) + (results.vendors?.length ?? 0);
 
   return (
     <div ref={containerRef} className="relative">
@@ -172,6 +173,19 @@ function GlobalSearch() {
                 ))}
               </div>
             )}
+            {(results.vendors?.length ?? 0) > 0 && (
+              <div className="mb-1">
+                <p className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">Vendors</p>
+                {results.vendors!.map((v) => (
+                  <button key={v.id} onClick={() => go("/vendors")} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-800">
+                    <Building2 className="h-3.5 w-3.5 flex-shrink-0 text-cyan-600" />
+                    <span className="font-mono text-[11px] font-bold text-gray-500">{v.vendorCode}</span>
+                    <span className="truncate text-xs text-gray-700 dark:text-gray-300">{v.name}</span>
+                    {v.riskScore !== null && <span className="ml-auto text-[10px] font-bold text-gray-400">risk {v.riskScore}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
             {results.risks.length > 0 && (
               <div className="mb-1">
                 <p className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">Risks</p>
@@ -227,6 +241,7 @@ type AlertItem = {
 const ALERT_ICONS: Record<string, { Icon: React.ElementType; color: string }> = {
   OVERDUE_REMEDIATION: { Icon: Wrench, color: "text-red-500" },
   POLICY_REVIEW: { Icon: ScrollText, color: "text-indigo-500" },
+  VENDOR_REVIEW: { Icon: Building2, color: "text-cyan-600" },
   EXCEPTION_REVIEW: { Icon: CalendarClock, color: "text-amber-500" },
   EXPIRED_EVIDENCE: { Icon: FolderLock, color: "text-red-500" },
   EXPIRING_EVIDENCE: { Icon: FolderLock, color: "text-yellow-500" },
