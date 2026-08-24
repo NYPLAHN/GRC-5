@@ -9,6 +9,7 @@ const UpdateRemediationSchema = z.object({
   description: z.string().min(1).optional(),
   controlId: z.string().nullable().optional(),
   riskId: z.string().nullable().optional(),
+  assignedTo: z.string().min(1).optional(),
   status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "WONT_FIX"]).optional(),
   priority: z.number().int().min(1).max(4).optional(),
   complexity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).nullable().optional(),

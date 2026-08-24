@@ -15,13 +15,16 @@ type Remediation = {
   complexity: string | null;
   dueDate: string | null;
   resolvedAt: string | null;
+  controlId: string | null;
+  riskId: string | null;
+  assignedTo: string;
   jiraIssueKey: string | null;
   jiraIssueUrl: string | null;
   jiraEpicKey: string | null;
   jiraEpicUrl: string | null;
   control: { controlCode: string; title: string } | null;
   risk: { riskId: string; title: string } | null;
-  assignee: { name: string | null; email: string };
+  assignee: { id?: string; name: string | null; email: string };
 };
 
 type Control = { id: string; controlCode: string; title: string };
@@ -57,6 +60,7 @@ export default function RemediationPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [showDrawer, setShowDrawer] = useState(false);
+  const [editItem, setEditItem] = useState<Remediation | null>(null);
   const [filter, setFilter] = useState<string>("ALL");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
@@ -105,7 +109,28 @@ export default function RemediationPage() {
 
   function resetForm() {
     setForm({ title: "", description: "", controlId: "", riskId: "", assignedTo: "", status: "OPEN", priority: 2, complexity: "", dueDate: "", jiraIssueKey: "", jiraEpicKey: "", createJiraIssue: false });
+    setEditItem(null);
     setError("");
+  }
+
+  function openEdit(item: Remediation) {
+    setEditItem(item);
+    setForm({
+      title: item.title,
+      description: item.description,
+      controlId: item.controlId ?? "",
+      riskId: item.riskId ?? "",
+      assignedTo: item.assignedTo ?? item.assignee.id ?? "",
+      status: item.status,
+      priority: item.priority,
+      complexity: item.complexity ?? "",
+      dueDate: item.dueDate ? item.dueDate.slice(0, 10) : "",
+      jiraIssueKey: item.jiraIssueKey ?? "",
+      jiraEpicKey: item.jiraEpicKey ?? "",
+      createJiraIssue: false,
+    });
+    setError("");
+    setShowDrawer(true);
   }
 
   function handleStatusChange(id: string, newStatus: string) {
@@ -131,23 +156,48 @@ export default function RemediationPage() {
     }
     startTransition(async () => {
       try {
-        const payload: any = {
-          ...form,
-          priority: Number(form.priority),
-        };
-        if (!payload.controlId) delete payload.controlId;
-        if (!payload.riskId) delete payload.riskId;
-        if (!payload.complexity) delete payload.complexity;
-        if (!payload.jiraIssueKey) delete payload.jiraIssueKey;
-        if (!payload.jiraEpicKey) delete payload.jiraEpicKey;
-        const res = await fetch("/api/remediation", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Failed");
-        setItems((prev) => [data.data, ...prev]);
+        if (editItem) {
+          // Full edit via PATCH — nulls clear optional fields
+          const payload: any = {
+            title: form.title,
+            description: form.description,
+            controlId: form.controlId || null,
+            riskId: form.riskId || null,
+            assignedTo: form.assignedTo,
+            status: form.status,
+            priority: Number(form.priority),
+            complexity: form.complexity || null,
+            dueDate: form.dueDate || null,
+            jiraIssueKey: form.jiraIssueKey || null,
+            jiraEpicKey: form.jiraEpicKey || null,
+          };
+          const res = await fetch(`/api/remediation/${editItem.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error ?? "Failed to update remediation");
+          setItems((prev) => prev.map((i) => (i.id === data.data.id ? data.data : i)));
+        } else {
+          const payload: any = {
+            ...form,
+            priority: Number(form.priority),
+          };
+          if (!payload.controlId) delete payload.controlId;
+          if (!payload.riskId) delete payload.riskId;
+          if (!payload.complexity) delete payload.complexity;
+          if (!payload.jiraIssueKey) delete payload.jiraIssueKey;
+          if (!payload.jiraEpicKey) delete payload.jiraEpicKey;
+          const res = await fetch("/api/remediation", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error ?? "Failed");
+          setItems((prev) => [data.data, ...prev]);
+        }
         setShowDrawer(false);
         resetForm();
       } catch (err: any) { setError(err.message); }
@@ -227,7 +277,12 @@ export default function RemediationPage() {
                     const complexityConf = item.complexity ? COMPLEXITY_CONFIG[item.complexity] : null;
                     const isOverdue = item.dueDate && new Date(item.dueDate) < new Date() && item.status !== "RESOLVED";
                     return (
-                      <tr key={item.id}>
+                      <tr
+                        key={item.id}
+                        onClick={() => openEdit(item)}
+                        title="Click to edit this remediation"
+                        className="cursor-pointer"
+                      >
                         <td>
                           <p className="font-medium text-gray-900 dark:text-gray-100">{item.title}</p>
                           <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 max-w-xs truncate">{item.description}</p>
@@ -261,7 +316,7 @@ export default function RemediationPage() {
                             )}
                           </div>
                         </td>
-                        <td>
+                        <td onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-1.5">
                             <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap", statusConf?.color)}>
                               <StatusIcon className="h-3 w-3" />{statusConf?.label ?? item.status}
@@ -290,7 +345,7 @@ export default function RemediationPage() {
                             </span>
                           ) : <span className="text-gray-300 dark:text-gray-600">—</span>}
                         </td>
-                        <td>
+                        <td onClick={(e) => e.stopPropagation()}>
                           <div className="flex flex-col gap-1">
                             {item.jiraIssueKey && (
                               <a href={item.jiraIssueUrl ?? "#"} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900 w-fit">
@@ -317,11 +372,11 @@ export default function RemediationPage() {
 
       {showDrawer && (
         <div className="fixed inset-0 z-50 flex items-start justify-end">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShowDrawer(false)} />
+          <div className="absolute inset-0 bg-black/40" onClick={() => { setShowDrawer(false); resetForm(); }} />
           <div className="relative z-10 h-full w-full max-w-lg overflow-y-auto bg-white dark:bg-gray-900 shadow-2xl">
             <div className="sticky top-0 flex items-center justify-between border-b dark:border-gray-800 bg-white dark:bg-gray-900 px-6 py-4">
-              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">New Remediation</h2>
-              <button onClick={() => setShowDrawer(false)} className="rounded-lg p-1 hover:bg-gray-100 dark:hover:bg-gray-800"><X className="h-5 w-5 dark:text-gray-400" /></button>
+              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{editItem ? "Edit Remediation" : "New Remediation"}</h2>
+              <button onClick={() => { setShowDrawer(false); resetForm(); }} className="rounded-lg p-1 hover:bg-gray-100 dark:hover:bg-gray-800"><X className="h-5 w-5 dark:text-gray-400" /></button>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5 p-6">
@@ -413,7 +468,7 @@ export default function RemediationPage() {
                     <input className="w-full rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.jiraEpicKey} onChange={(e) => setForm((f) => ({ ...f, jiraEpicKey: e.target.value }))} placeholder="e.g. GRC-EPIC-12" />
                   </div>
                 </div>
-                {jiraEnabled && (
+                {jiraEnabled && !editItem && (
                   <label className="flex cursor-pointer items-start gap-3 rounded-lg border dark:border-gray-700 p-3 hover:bg-gray-50 dark:hover:bg-gray-800">
                     <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600" checked={form.createJiraIssue} onChange={(e) => setForm((f) => ({ ...f, createJiraIssue: e.target.checked }))} />
                     <div>
@@ -427,10 +482,10 @@ export default function RemediationPage() {
               {error && <p className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 px-3 py-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
               <div className="flex gap-3 border-t dark:border-gray-800 pt-4">
-                <button type="button" onClick={() => setShowDrawer(false)} className="flex-1 rounded-lg border dark:border-gray-700 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+                <button type="button" onClick={() => { setShowDrawer(false); resetForm(); }} className="flex-1 rounded-lg border dark:border-gray-700 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
                 <button type="submit" disabled={isPending} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
                   {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {form.createJiraIssue ? "Create & Push to Jira" : "Create Remediation"}
+                  {editItem ? "Save Changes" : form.createJiraIssue ? "Create & Push to Jira" : "Create Remediation"}
                 </button>
               </div>
             </form>
