@@ -3,7 +3,7 @@
 import { UserButton } from "@clerk/nextjs";
 import {
   Bell, Search, Sun, Moon, X, Loader2, ShieldCheck, AlertTriangle, Wrench,
-  FolderLock, CalendarClock, ScrollText, Building2,
+  FolderLock, CalendarClock, ScrollText, Building2, Send, Check,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
@@ -252,8 +252,30 @@ function AlertsBell() {
   const [open, setOpen] = useState(false);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [digestState, setDigestState] = useState<"idle" | "sending" | "sent" | "unconfigured" | "error">("idle");
+  const [digestError, setDigestError] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  function sendDigest() {
+    setDigestState("sending");
+    setDigestError("");
+    fetch("/api/notifications/digest", { method: "POST" })
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error ?? "Failed to send digest");
+        if (d.data?.notConfigured) {
+          setDigestState("unconfigured");
+        } else {
+          setDigestState("sent");
+          setTimeout(() => setDigestState("idle"), 3000);
+        }
+      })
+      .catch((e) => {
+        setDigestState("error");
+        setDigestError(e.message);
+      });
+  }
 
   useEffect(() => {
     fetch("/api/alerts")
@@ -315,6 +337,28 @@ function AlertsBell() {
                   </button>
                 );
               })
+            )}
+          </div>
+
+          {/* Digest footer */}
+          <div className="border-t dark:border-gray-800 p-3">
+            <button
+              onClick={sendDigest}
+              disabled={digestState === "sending"}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/50 px-3 py-2 text-xs font-semibold text-indigo-700 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 disabled:opacity-50"
+            >
+              {digestState === "sending" ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : digestState === "sent" ? <Check className="h-3.5 w-3.5 text-green-600" />
+                : <Send className="h-3.5 w-3.5" />}
+              {digestState === "sent" ? "Digest sent to Slack!" : "Send digest to Slack"}
+            </button>
+            {digestState === "unconfigured" && (
+              <p className="mt-2 text-center text-[10px] text-amber-600 dark:text-amber-400">
+                Add SLACK_WEBHOOK_URL to .env to enable — see .env.example
+              </p>
+            )}
+            {digestState === "error" && (
+              <p className="mt-2 text-center text-[10px] text-red-500">{digestError}</p>
             )}
           </div>
         </div>

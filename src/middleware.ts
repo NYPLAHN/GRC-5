@@ -6,6 +6,7 @@ const isPublicRoute = createRouteMatcher([
   "/api/webhooks(.*)",    // Jira inbound webhooks bypass auth
   "/vra/(.*)",            // vendor self-service VRA (token-gated, no session)
   "/api/vra/(.*)",
+  "/api/notifications/digest(.*)", // GET is CRON_SECRET-gated; POST enforces session itself
 ]);
 
 export default clerkMiddleware((auth, request) => {

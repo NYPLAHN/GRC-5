@@ -485,6 +485,28 @@ model VendorVraResponse {
   @@index([vendorId])
 }
 
+// ─── Posture Trend History ────────────────────────────────────
+
+model PostureSnapshot {
+  id                   String   @id @default(cuid())
+  snapshotDate         String   @unique // "YYYY-MM-DD" — one snapshot per day
+  complianceScore      Int?     // NIST CSF % from latest assessment results
+  controlRiskScore     Int?     // 0-100, criticality × maturity gap
+  avgMaturity          Float?
+  controlsImplemented  Int
+  controlsTotal        Int
+  risksOpen            Int
+  risksCritical        Int
+  exceptionsActive     Int
+  remediationsOpen     Int
+  remediationsOverdue  Int
+  vendorRiskAvg        Int?
+  policiesOverdue      Int
+  createdAt            DateTime @default(now())
+
+  @@index([snapshotDate])
+}
+
 // ─── Audit Log ────────────────────────────────────────────────
 
 model AuditLog {

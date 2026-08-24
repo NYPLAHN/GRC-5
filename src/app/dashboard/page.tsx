@@ -7,7 +7,9 @@ import RemediationBurndown from "@/components/dashboard/RemediationBurndown";
 import NistFunctionChart from "@/components/dashboard/NistFunctionChart";
 import NistRadarChart from "@/components/dashboard/NistRadarChart";
 import ControlPostureChart from "@/components/dashboard/ControlPostureChart";
+import PostureTrendChart from "@/components/dashboard/PostureTrendChart";
 import { computeControlRiskScore } from "@/lib/utils";
+import { capturePostureSnapshot, getPostureTrend } from "@/lib/posture";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { enforcePermission } from "@/lib/rbac";
@@ -23,6 +25,10 @@ import {
 import Link from "next/link";
 
 async function getDashboardData() {
+  // Capture today's posture snapshot (idempotent — runs once per day)
+  await capturePostureSnapshot();
+  const trend = await getPostureTrend(90);
+
   const risks = await prisma.risk.findMany({
     select: {
       inherentScore: true,
@@ -142,7 +148,7 @@ async function getDashboardData() {
     ? Math.round(scoredControls.reduce((sum, c) => sum + c.riskScore, 0) / scoredControls.length)
     : 0;
 
-  return { risks, controls, complianceSummaries, remediations, overdueRemediations, burndownData, heatmapData, functionStats, scoredControls, overallControlRisk };
+  return { risks, controls, complianceSummaries, remediations, overdueRemediations, burndownData, heatmapData, functionStats, scoredControls, overallControlRisk, trend };
 }
 
 export default async function DashboardPage() {
@@ -214,6 +220,18 @@ export default async function DashboardPage() {
 
         {/* Control posture: overall risk score + maturity */}
         <ControlPostureChart controls={data.scoredControls} overallScore={data.overallControlRisk} />
+
+        {/* Posture trend history */}
+        <PostureTrendChart
+          data={data.trend.map((s) => ({
+            snapshotDate: s.snapshotDate,
+            complianceScore: s.complianceScore,
+            controlRiskScore: s.controlRiskScore,
+            vendorRiskAvg: s.vendorRiskAvg,
+            risksOpen: s.risksOpen,
+            remediationsOverdue: s.remediationsOverdue,
+          }))}
+        />
 
         {/* Charts Row */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
