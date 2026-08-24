@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
 
     const contains = { contains: q, mode: "insensitive" as const };
 
-    const [controls, risks, remediations, evidence] = await Promise.all([
+    const [controls, risks, remediations, evidence, policies] = await Promise.all([
       prisma.internalControl.findMany({
         where: { OR: [{ controlCode: contains }, { title: contains }, { description: contains }, { category: contains }] },
         select: { id: true, controlCode: true, title: true, status: true },
@@ -42,9 +42,15 @@ export async function GET(request: NextRequest) {
         take: 5,
         orderBy: { createdAt: "desc" },
       }),
+      prisma.policy.findMany({
+        where: { OR: [{ policyCode: contains }, { name: contains }, { description: contains }, { category: contains }] },
+        select: { id: true, policyCode: true, name: true, status: true },
+        take: 5,
+        orderBy: { policyCode: "asc" },
+      }).catch(() => [] as { id: string; policyCode: string; name: string; status: string }[]),
     ]);
 
-    return NextResponse.json({ data: { controls, risks, remediations, evidence } });
+    return NextResponse.json({ data: { controls, risks, remediations, evidence, policies } });
   } catch (err: any) {
     const status = err.message.startsWith("Unauthorized") ? 401 : 500;
     return NextResponse.json({ error: err.message }, { status });

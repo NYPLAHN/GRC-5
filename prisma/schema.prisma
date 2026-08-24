@@ -60,6 +60,13 @@ enum ReviewCadence {
   ANNUAL
 }
 
+enum PolicyStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  RETIRED
+}
+
 enum ComplianceStatus {
   COMPLIANT
   PARTIAL
@@ -357,6 +364,46 @@ model Remediation {
   @@index([controlId])
   @@index([riskId])
   @@index([status])
+}
+
+// ─── Policy Register ──────────────────────────────────────────
+
+model Policy {
+  id             String        @id @default(cuid())
+  policyCode     String        @unique // e.g. "POL-001"
+  name           String
+  description    String?       @db.Text
+  category       String?       // e.g. "Access Control", "Incident Response"
+  owner          String?
+  status         PolicyStatus  @default(DRAFT)
+  version        String        @default("1.0")
+  effectiveDate  DateTime?
+  approvedBy     String?
+  reviewCadence  ReviewCadence @default(ANNUAL)
+  lastReviewedAt DateTime?
+  nextReviewDate DateTime?
+  // Uploaded document (metadata; storageKey mirrors Evidence pattern)
+  fileName       String?
+  fileSize       Int?
+  storageKey     String?
+  relatedControls String[]     // InternalControl.controlCode values
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  revisions PolicyRevision[]
+}
+
+model PolicyRevision {
+  id        String   @id @default(cuid())
+  policyId  String
+  version   String   // version at the time of this revision
+  summary   String   @db.Text // what changed / review outcome
+  changedBy String   // user name/email
+  createdAt DateTime @default(now())
+
+  policy Policy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@index([policyId])
 }
 
 // ─── Audit Log ────────────────────────────────────────────────

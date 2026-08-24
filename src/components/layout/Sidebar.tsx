@@ -12,6 +12,7 @@ import {
   Wrench,
   BarChart3,
   CalendarDays,
+  ScrollText,
   Users,
   Settings,
   ChevronRight,
@@ -29,6 +30,7 @@ const navItems = [
     section: "Risk & Compliance",
     items: [
       { href: "/controls", label: "Controls Library", icon: ShieldCheck },
+      { href: "/policies", label: "Policy Register", icon: ScrollText },
       { href: "/risks", label: "Risk Register", icon: AlertTriangle },
       { href: "/assessments", label: "Assessments", icon: ClipboardList },
     ],
